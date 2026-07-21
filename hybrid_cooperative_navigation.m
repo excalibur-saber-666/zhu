@@ -1,6 +1,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 
-%   »ùÓÚÒò×ÓÍ¼ºÍ¿¨¶ûÂüÂË²¨µÄ»ìºÏÊ½Ğ­Í¬µ¼º½·½·¨
+%   åŸºäºå› å­å›¾å’Œå¡å°”æ›¼æ»¤æ³¢çš„æ··åˆå¼ååŒå¯¼èˆªæ–¹æ³•
 %
 %
 %
@@ -10,25 +10,25 @@ close all;
 for monte =1:1
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%--------------¹Ì¶¨²ÎÊıÉèÖÃ----------------%
+%--------------å›ºå®šå‚æ•°è®¾ç½®----------------%
 deg_rad=0.01745329252e0;% Transfer from angle degree to rad
-g=9.7803698;         %ÖØÁ¦¼ÓËÙ¶È    £¨µ¥Î»£ºÃ×/Ãë/Ãë£©
-Re=6378137.0;           %µØÇò°ë¾¶£¨Ã×£© 
-f=1/298.257;            %µØÇòµÄÍÖÔ²ÂÊ
+g=9.7803698;         %é‡åŠ›åŠ é€Ÿåº¦    ï¼ˆå•ä½ï¼šç±³/ç§’/ç§’ï¼‰
+Re=6378137.0;           %åœ°çƒåŠå¾„ï¼ˆç±³ï¼‰
+f=1/298.257;            %åœ°çƒçš„æ¤­åœ†ç‡
 
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%--------------·ÂÕæÊ±¼äÉèÖÃ---------------%
+%--------------ä»¿çœŸæ—¶é—´è®¾ç½®---------------%
 %%
 t = 0;
-T = 0.02;  %¹ßµ¼¸üĞÂÆµÂÊ
-T_D = 1;   %Ã¿´Î½øÈëÓÅ»¯µÄÊ±¼äÒÔ¼°¿¨¶ûÂüÂË²¨ÖÜÆÚ
+T = 0.02;  %æƒ¯å¯¼æ›´æ–°é¢‘ç‡
+T_D = 1;   %æ¯æ¬¡è¿›å…¥ä¼˜åŒ–çš„æ—¶é—´ä»¥åŠå¡å°”æ›¼æ»¤æ³¢å‘¨æœŸ
 T_M = 0;
-t_stop = 600;  %·ÂÕæ×ÜÊ±³¤
+t_stop = 600;  %ä»¿çœŸæ€»æ—¶é•¿
 %%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%--------------³õÊ¼Î»ÖÃÉú³É----------%
+%--------------åˆå§‹ä½ç½®ç”Ÿæˆ----------%
 %%
 uav_num = 5; high_num =3;
 % [x,y,z]=sampling(0,600,0,600,100,1000,uav_num,100);
@@ -41,10 +41,10 @@ load ('posi_e_all.dat');load ('posi_n_all.dat');load ('posi_u_all.dat');
 % save posi_e_all.dat x -ASCII;
 % save posi_n_all.dat y -ASCII;
 % save posi_u_all.dat z -ASCII;
-posi_ini = [118;32;200.0];    %´ú±í[0;0;0]ËùÔÚµÄ¾­Î³¸ß
+posi_ini = [118;32;200.0];    %ä»£è¡¨[0;0;0]æ‰€åœ¨çš„ç»çº¬é«˜
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%----------------×ª»»Îª¾­Î³¶È±íÊ¾--------------%
+%----------------è½¬æ¢ä¸ºç»çº¬åº¦è¡¨ç¤º--------------%
 posi_w_all = zeros(3,uav_num - high_num); posi_w_enu_all = zeros(3,uav_num - high_num);
 posi_L_all = zeros(3,high_num); posi_L_enu_all = zeros(3,high_num);
 posi_w_graph = zeros(3,uav_num - high_num); posiN_w_graph = zeros(3,uav_num - high_num);
@@ -64,62 +64,73 @@ end
 
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%------------------------ÉùÃ÷µ¼º½²ÎÊı----------------%
-%ĞèÒª×¢ÒâµÄÊÇ£ºÈç¹û±äÁ¿°üº¬µÄÊÇËùÓĞÎŞÈË»úµÄ×´Ì¬£¬ÄÇÃ´ÁÅ»úÔÚÇ°£¬³¤»úÔÚºó
+%------------------------å£°æ˜å¯¼èˆªå‚æ•°----------------%
+%éœ€è¦æ³¨æ„çš„æ˜¯ï¼šå¦‚æœå˜é‡åŒ…å«çš„æ˜¯æ‰€æœ‰æ— äººæœºçš„çŠ¶æ€ï¼Œé‚£ä¹ˆåƒšæœºåœ¨å‰ï¼Œé•¿æœºåœ¨å
 veloB_all = zeros(3,uav_num);         
 velo_all = zeros(3,uav_num);
-atti_all = zeros(3,uav_num);    %ËùÓĞ»úÈºËÙ¶ÈºÍ×ËÌ¬ÕæÖµ
+atti_all = zeros(3,uav_num);    %æ‰€æœ‰æœºç¾¤é€Ÿåº¦å’Œå§¿æ€çœŸå€¼
 
-veloN_all = zeros(3,uav_num - high_num); attiN_all = zeros(3,uav_num - high_num);  %ÁÅ»úÈºËÙ¶ÈºÍ×ËÌ¬½âËãÖµ
-WnbbA_old = zeros(3,uav_num - high_num);  %½ÇËÙ¶È»ı·ÖÊä³ö
-atti_rate_all = zeros(3,uav_num);  %ºá¹öËÙÂÊ¡¢¸©ÑöËÙÂÊ
-acceB_all = zeros(3,uav_num);  %¼ÓËÙ¶È
-%Èç¹û³õÊ¼ËÙ¶ÈºÍÔË¶¯¹ì¼£¶¼Ò»Ñù£¬ÄÇÃ´½ÇËÙ¶ÈºÍ¼ÓËÙ¶ÈµÄÕæÖµ¿ÉÒÔÉèÖÃ³ÉÒ»ÑùµÄ
-%%IMUÊä³ö%%
-Wibb=zeros(3,1);    %»úÌåÏµÍÓÂİÒÇÊä³ö   £¨µ¥Î»£º¶È/Ãë£©
-Fb=zeros(3,1);      %»úÌåÏµ¼ÓËÙ¶È¼ÆÊä³ö £¨µ¥Î»£ºÃ×/Ãë/Ãë£©
+veloN_all = zeros(3,uav_num - high_num); attiN_all = zeros(3,uav_num - high_num);  %åƒšæœºç¾¤é€Ÿåº¦å’Œå§¿æ€è§£ç®—å€¼
+WnbbA_old = zeros(3,uav_num - high_num);  %è§’é€Ÿåº¦ç§¯åˆ†è¾“å‡º
+atti_rate_all = zeros(3,uav_num);  %æ¨ªæ»šé€Ÿç‡ã€ä¿¯ä»°é€Ÿç‡
+acceB_all = zeros(3,uav_num);  %åŠ é€Ÿåº¦
+%å¦‚æœåˆå§‹é€Ÿåº¦å’Œè¿åŠ¨è½¨è¿¹éƒ½ä¸€æ ·ï¼Œé‚£ä¹ˆè§’é€Ÿåº¦å’ŒåŠ é€Ÿåº¦çš„çœŸå€¼å¯ä»¥è®¾ç½®æˆä¸€æ ·çš„
+%%IMUè¾“å‡º%%
+Wibb=zeros(3,1);    %æœºä½“ç³»é™€èºä»ªè¾“å‡º   ï¼ˆå•ä½ï¼šåº¦/ç§’ï¼‰
+Fb=zeros(3,1);      %æœºä½“ç³»åŠ é€Ÿåº¦è®¡è¾“å‡º ï¼ˆå•ä½ï¼šç±³/ç§’/ç§’ï¼‰
 
-Wibb_noise = zeros(3,uav_num-high_num); %´øÔëÉùµÄÍÓÂİÒÇÊä³ö
-Fb_noise = zeros(3,uav_num-high_num);  %´øÔëÉùµÄ¼ÓËÙ¶È¼ÆÊä³ö
+Wibb_noise = zeros(3,uav_num-high_num); %å¸¦å™ªå£°çš„é™€èºä»ªè¾“å‡º
+Fb_noise = zeros(3,uav_num-high_num);  %å¸¦å™ªå£°çš„åŠ é€Ÿåº¦è®¡è¾“å‡º
 
-Gyro_b=zeros(3,uav_num-high_num);  % ÍÓÂİËæ»ú³£Êı£¨»¡¶È/Ãë£©
-Gyro_r=zeros(3,uav_num-high_num);  % ÍÓÂİÒ»½×Âí¶û¿É·ò¹ı³Ì£¨»¡¶È/Ãë£©
-Gyro_wg=zeros(3,uav_num-high_num); %ÍÓÂİ°×ÔëÉù£¨»¡¶È/Ãë£©
-Acc_r =zeros(3,uav_num-high_num);  % ¼ÓËÙ¶ÈÒ»½×Âí¶û¿É·ò¹ı³Ì£¨Ã×/Ãë/Ãë£©
+Gyro_b=zeros(3,uav_num-high_num);  % é™€èºéšæœºå¸¸æ•°ï¼ˆå¼§åº¦/ç§’ï¼‰
+Gyro_r=zeros(3,uav_num-high_num);  % é™€èºä¸€é˜¶é©¬å°”å¯å¤«è¿‡ç¨‹ï¼ˆå¼§åº¦/ç§’ï¼‰
+Gyro_wg=zeros(3,uav_num-high_num); %é™€èºç™½å™ªå£°ï¼ˆå¼§åº¦/ç§’ï¼‰
+Acc_r =zeros(3,uav_num-high_num);  % åŠ é€Ÿåº¦ä¸€é˜¶é©¬å°”å¯å¤«è¿‡ç¨‹ï¼ˆç±³/ç§’/ç§’ï¼‰
 
-%%GPS·ÂÕæÊä³ö%%
+%%GPSä»¿çœŸè¾“å‡º%%
 posiG_w_all = zeros(3,uav_num-high_num);
-posiG_L = zeros(3,high_num); %¸ß¾«¶ÈÃª»úµÄGPSÊä³ö
+posiG_L = zeros(3,high_num); %é«˜ç²¾åº¦é”šæœºçš„GPSè¾“å‡º
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%-------------------¿¨¶ûÂüÂË²¨²ÎÊı-----------------%
-Acc_modi_all = zeros(3,uav_num-high_num);  %¼ÓËÙ¶È¼ÆÎó²îĞŞÕıÖµ
-Gyro_modi_all = zeros(3,uav_num-high_num);     %ÍÓÂİÎó²îĞŞÕıÖµ
+%-------------------å¡å°”æ›¼æ»¤æ³¢å‚æ•°-----------------%
+Acc_modi_all = zeros(3,uav_num-high_num);  %åŠ é€Ÿåº¦è®¡è¯¯å·®ä¿®æ­£å€¼
+Gyro_modi_all = zeros(3,uav_num-high_num);     %é™€èºè¯¯å·®ä¿®æ­£å€¼
 for i = 1:uav_num-high_num
-    Xc = zeros(18,1);    %ÏµÍ³µÄ×´Ì¬Á¿
+    Xc = zeros(18,1);    %ç³»ç»Ÿçš„çŠ¶æ€é‡
     Xc_all{1,i} = Xc;
-    PK = zeros(18,18);   %×´Ì¬Ğ­·½²îÕó
+    PK = zeros(18,18);   %çŠ¶æ€åæ–¹å·®é˜µ
     PK_all{1,i} = PK;
-    Xerr = zeros(1,18);  %×´Ì¬¹À¼ÆÁ¿µÄÎó²îÖµ
+    Xerr = zeros(1,18);  %çŠ¶æ€ä¼°è®¡é‡çš„è¯¯å·®å€¼
     Xerr_all{1,i} = Xerr;
 end
 
 %%
-%-------------------Òò×ÓÍ¼²ÎÊı--------------------%
+%-------------------å› å­å›¾å‚æ•°--------------------%
 cov_graph = zeros(3,uav_num-high_num);
+
+%-------------------æ»‘åŠ¨çª—å£å› å­å›¾å‚æ•°------------%
+% çª—å£é•¿åº¦é‡‡ç”¨ Zhu ç­‰æ–‡ä¸­çš„ 10 ä¸ªå…³é”®å¸§ã€‚æ¯å¸§é—´éš”ä¸º T_D=1 sï¼Œ
+% å› æ­¤çª—å£è¦†ç›–æœ€è¿‘çº¦ 10 s çš„æµ‹è·å’Œæƒ¯æ€§ç›¸å¯¹ä½ç§»çº¦æŸã€‚
+window_length = 10;
+window_motion_std = [2;2;4];   % SINS ç›¸é‚»å…³é”®å¸§ç›¸å¯¹ä½ç§»æ ‡å‡†å·®ï¼Œå•ä½ m
+window_history = repmat(struct('node_priors', zeros(3,uav_num), ...
+    'range_nodes', zeros(2,0), 'range_measurements', zeros(0,1), ...
+    'motion_delta', zeros(3,uav_num-high_num), 'has_motion', false), 0, 1);
+last_sins_after_graph = zeros(3,uav_num-high_num);
+has_last_sins_after_graph = false;
 
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%--------------IMU²ÎÊı¸³Öµ---------%
+%--------------IMUå‚æ•°èµ‹å€¼---------%
 for i = 1:uav_num-high_num
     [Gyro_b(:,i),Gyro_r(:,i),Gyro_wg(:,i),Acc_r(:,i)]=imu_err_random(t,T,Gyro_b(:,i),Gyro_r(:,i),Gyro_wg(:,i),Acc_r(:,i));
 end
 
-%--------------³õÊ¼µ¼º½²ÎÊı¸³Öµ--------------%
+%--------------åˆå§‹å¯¼èˆªå‚æ•°èµ‹å€¼--------------%
 kc = 0;
 for i = 1:uav_num
-    veloB_all(2,i) = 5;   %ÉèÖÃ³õÊ¼ËÙ¶È£¬»úÍ··½Ïò
-    atti_all(:,i) = [0;0;90];  %ÉèÖÃ³õÊ¼º½Ïò
+    veloB_all(2,i) = 5;   %è®¾ç½®åˆå§‹é€Ÿåº¦ï¼Œæœºå¤´æ–¹å‘
+    atti_all(:,i) = [0;0;90];  %è®¾ç½®åˆå§‹èˆªå‘
 end
 attiN_all = atti_all(:,1:uav_num-high_num);
 
@@ -127,7 +138,7 @@ old_veloB_all = veloB_all;
 old_atti_all = atti_all;
 
 for i = 1:uav_num
-    velo_all(:,i) = veloN0(atti_all(:,i),veloB_all(:,i));  %ËùÓĞÎŞÈË»úÔÚ¶«±±Ìì×ø±êÏµÏÂµÄËÙ¶ÈÕæÖµ
+    velo_all(:,i) = veloN0(atti_all(:,i),veloB_all(:,i));  %æ‰€æœ‰æ— äººæœºåœ¨ä¸œåŒ—å¤©åæ ‡ç³»ä¸‹çš„é€Ÿåº¦çœŸå€¼
 end
 for i = 1:uav_num-high_num
     veloN_all(:,i) = veloN0(attiN_all(:,i),veloB_all(:,i));
@@ -135,13 +146,13 @@ end
 
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-w_flag = 1; L_flag = 2;   % w_flag´ú±íµÄÁÅ»ú
+w_flag = 1; L_flag = 2;   % w_flagä»£è¡¨çš„åƒšæœº
 for i = 1:uav_num-high_num
     posiG_w_all(:,i) = simu_gps(posi_w_enu_all(:,i),w_flag); 
 end
 
-posiN_w_all = posi_w_enu_all;    %Ê×ÏÈ¸³ÖµÎªÕæÖµ
-%¿¨¶ûÂüÂË²¨Æ÷µÄ³õÊ¼»¯
+posiN_w_all = posi_w_enu_all;    %é¦–å…ˆèµ‹å€¼ä¸ºçœŸå€¼
+%å¡å°”æ›¼æ»¤æ³¢å™¨çš„åˆå§‹åŒ–
 for i = 1:uav_num-high_num
     Xc = Xc_all{1,i};
     PK = PK_all{1,i};
@@ -155,19 +166,19 @@ end
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 t = 0; 
-%Êı¾İ¼ÇÂ¼
+%æ•°æ®è®°å½•
 
-TraceData = zeros(t_stop/T,uav_num*3+1);    %¼ÇÂ¼ËùÓĞÎŞÈË»úµÄÕæÊµÎ»ÖÃ£¬Ç°Ê®ÏîÎªÊ±¼äºÍ³¤»úÎ»ÖÃ£¬ºóÃæÊÇÁÅ»úÎ»ÖÃ
-TraceData_xyz = zeros(t_stop/T,uav_num*3+1);  %¼ÇÂ¼ËùÓĞÁÅ»úµÄÕæÊµÎ»ÖÃ£¬ÒÔ[0£»0£»0]ÎªÔ­µã
-SinsData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %¼ÇÂ¼ËùÓĞÁÅ»úµÄ¹ßµ¼½âËãÎ»ÖÃ
-SinsData_xyz = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %¼ÇÂ¼ËùÓĞÁÅ»úµÄ¹ßµ¼½âËãÎ»ÖÃ£¬ÒÔ[0£»0£»0]ÎªÔ­µã
-AttiData = zeros(t_stop/T,uav_num*3+1);  %¼ÇÂ¼ËùÓĞÎŞÈË»úµÄÕæÊµ×ËÌ¬
-AttiNData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %¼ÇÂ¼ËùÓĞÁÅ»úµÄ½âËã×ËÌ¬
+TraceData = zeros(t_stop/T,uav_num*3+1);    %è®°å½•æ‰€æœ‰æ— äººæœºçš„çœŸå®ä½ç½®ï¼Œå‰åé¡¹ä¸ºæ—¶é—´å’Œé•¿æœºä½ç½®ï¼Œåé¢æ˜¯åƒšæœºä½ç½®
+TraceData_xyz = zeros(t_stop/T,uav_num*3+1);  %è®°å½•æ‰€æœ‰åƒšæœºçš„çœŸå®ä½ç½®ï¼Œä»¥[0ï¼›0ï¼›0]ä¸ºåŸç‚¹
+SinsData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %è®°å½•æ‰€æœ‰åƒšæœºçš„æƒ¯å¯¼è§£ç®—ä½ç½®
+SinsData_xyz = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %è®°å½•æ‰€æœ‰åƒšæœºçš„æƒ¯å¯¼è§£ç®—ä½ç½®ï¼Œä»¥[0ï¼›0ï¼›0]ä¸ºåŸç‚¹
+AttiData = zeros(t_stop/T,uav_num*3+1);  %è®°å½•æ‰€æœ‰æ— äººæœºçš„çœŸå®å§¿æ€
+AttiNData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %è®°å½•æ‰€æœ‰åƒšæœºçš„è§£ç®—å§¿æ€
 GPSData = zeros(t_stop/T_D,(uav_num-high_num)*3 + 1);
-VeloData = zeros(t_stop/T,uav_num*3+1);  %¼ÇÂ¼ËùÓĞÎŞÈË»úµÄÕæÊµËÙ¶È
-VeloNData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %¼ÇÂ¼ËùÓĞÁÅ»úµÄ½âËãËÙ¶È
+VeloData = zeros(t_stop/T,uav_num*3+1);  %è®°å½•æ‰€æœ‰æ— äººæœºçš„çœŸå®é€Ÿåº¦
+VeloNData = zeros(t_stop/T,(uav_num-high_num)*3 + 1);  %è®°å½•æ‰€æœ‰åƒšæœºçš„è§£ç®—é€Ÿåº¦
 GPSerrData = zeros(t_stop/T_D,(uav_num-high_num)*3 + 1);
-GraphData = zeros(t_stop/T_D,(uav_num-high_num)*3 + 1);   %¼ÇÂ¼ÁÅ»úµÄÒò×ÓÍ¼½âËãÖµ
+GraphData = zeros(t_stop/T_D,(uav_num-high_num)*3 + 1);   %è®°å½•åƒšæœºçš„å› å­å›¾è§£ç®—å€¼
 
 TraceData(1,1) = t;
 for i = 1:high_num
@@ -202,7 +213,7 @@ for i = 1:uav_num-high_num
     end
 end
 
-%·ÂÕæÕıÊ½¿ªÊ¼
+%ä»¿çœŸæ­£å¼å¼€å§‹
 
 k_sins = 1;
 kc=1;
@@ -215,17 +226,17 @@ while t <=t_stop
         kc=kc+1;
         disp(t);
      end
-     %¿ØÖÆÏÔÊ¾
+     %æ§åˆ¶æ˜¾ç¤º
      
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %%
-    %¼¯Èºº½¼£·¢Éú
+    %é›†ç¾¤èˆªè¿¹å‘ç”Ÿ
     old_veloB_all = veloB_all;
     old_atti_all = atti_all;
     [t,atti_all(:,1),atti_rate_all(:,1),veloB_all(:,1),acceB_all(:,1)]=trace(t,T,atti_all(:,1),atti_rate_all(:,1),veloB_all(:,1),acceB_all(:,1));
     [velo_all(:,1)] = veloN0(atti_all(:,1),veloB_all(:,1));
     [Wibb,Fb] = IMUout(T,posi_w_enu_all(:,1),atti_all(:,1),atti_rate_all(:,1),veloB_all(:,1),acceB_all(:,1),old_veloB_all(:,1),old_atti_all(:,1));
-    for i = 1:uav_num-1   %½«º½¼£·¢ÉúÆ÷²ÎÊıÈ«²¿¸³Öµ
+    for i = 1:uav_num-1   %å°†èˆªè¿¹å‘ç”Ÿå™¨å‚æ•°å…¨éƒ¨èµ‹å€¼
         atti_all(:,i+1) = atti_all(:,1);
         atti_rate_all(:,i+1) = atti_rate_all(:,1);
         veloB_all(:,i+1) = veloB_all(:,1);
@@ -243,7 +254,7 @@ while t <=t_stop
     
     %%
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %IMUÎó²îÉú³É¼°¹ßµ¼½âËã
+    %IMUè¯¯å·®ç”ŸæˆåŠæƒ¯å¯¼è§£ç®—
     for i = 1:uav_num -high_num
         [Gyro_b(:,i),Gyro_r(:,i),Gyro_wg(:,i),Acc_r(:,i)]=imu_err_random(t,T,Gyro_b(:,i),Gyro_r(:,i),Gyro_wg(:,i),Acc_r(:,i)); 
         Wibb_noise(:,i) = Wibb + Gyro_b(:,i)/deg_rad + Gyro_r(:,i)/deg_rad + Gyro_wg(:,i)/deg_rad;
@@ -252,20 +263,20 @@ while t <=t_stop
     
     for i = 1:uav_num-high_num
         [attiN_all(:,i),WnbbA_old(:,i)]=atti_cal_cq_modi(T,Wibb_noise(:,i)-Gyro_modi_all(:,i)/deg_rad,attiN_all(:,i),veloN_all(:,i),posiN_w_all(:,i),WnbbA_old(:,i));
-            %×ËÌ¬½ÇÇó½â
+            %å§¿æ€è§’æ±‚è§£
         [veloN_all(:,i)] = velo_cal(T,Fb_noise(:,i)-Acc_modi_all(:,i),attiN_all(:,i),veloN_all(:,i),posiN_w_all(:,i));
-            %±ÈÁ¦±ä»»
+            %æ¯”åŠ›å˜æ¢
         [posiN_w_all(:,i)] = posi_cal(T,veloN_all(:,i),posiN_w_all(:,i));
-        %Î»ÖÃ¼ÆËã
+        %ä½ç½®è®¡ç®—
     end
     %%
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     T_M = T_M + T; k_flag = 0;
-    %½øÈë¿¨¶ûÂüÂË²¨½×¶Î,Ê×ÏÈ½øĞĞÊ±¼ä¸üĞÂ
+    %è¿›å…¥å¡å°”æ›¼æ»¤æ³¢é˜¶æ®µ,é¦–å…ˆè¿›è¡Œæ—¶é—´æ›´æ–°
     if T_M >= T_D
         T_M = 0.0; k_flag = 1;
         
-        w_flag = 1; L_flag = 2;   % w_flag´ú±íµÄÁÅ»ú
+        w_flag = 1; L_flag = 2;   % w_flagä»£è¡¨çš„åƒšæœº
         for i = 1:uav_num-high_num
             posiG_w_all(:,i) = simu_gps(posi_w_enu_all(:,i),w_flag); 
         end
@@ -275,9 +286,9 @@ while t <=t_stop
         
     %%%%%%%%%%%
     %%
-    %Ê±¼ä¸üĞÂ
+    %æ—¶é—´æ›´æ–°
     for i = 1:uav_num-high_num
-        Xc = zeros(18,1);    %ÏµÍ³µÄ×´Ì¬Á¿
+        Xc = zeros(18,1);    %ç³»ç»Ÿçš„çŠ¶æ€é‡
         Xc_all{1,i} = Xc;
     end
     for i = 1:uav_num-high_num
@@ -287,117 +298,130 @@ while t <=t_stop
 
     %%
     %%%%%%%%%%%
-    %Î±¾àÉú³É
+    %ä¼ªè·ç”Ÿæˆ
     for i = 1:uav_num-high_num
-        uav_link_num{1,i} = [];   %¼ÇÂ¼Ã¿¸ö¸¨»úÏàÁ¬½ÓµÄÎŞÈË»ú±êºÅ
+        uav_link_num{1,i} = [];   %è®°å½•æ¯ä¸ªè¾…æœºç›¸è¿æ¥çš„æ— äººæœºæ ‡å·
     end
-    dis_err = 0.2;   %²â¾àÔëÉùÉèÖÃ
+    dis_err = 0.2;   %æµ‹è·å™ªå£°è®¾ç½®
     %
-    [posi_w_all,posi_L_all,dis_true] = distance_cal(posi_w_enu_all,posi_L_enu_all,posi_ini,uav_num,high_num);  %¾àÀëÕæÖµ¼ÆËã
+    [posi_w_all,posi_L_all,dis_true] = distance_cal(posi_w_enu_all,posi_L_enu_all,posi_ini,uav_num,high_num);  %è·ç¦»çœŸå€¼è®¡ç®—
     
     [dis_measure,uav_link_num] = psedu_cal(dis_true,dis_err,uav_link_num,uav_num,high_num);
     
     %%
-    %½¨Á¢Òò×ÓÍ¼
+    %å»ºç«‹å› å­å›¾
     Xerr_gps_low = [10;10;20]; Xerr_gps_high = [0.2;0.2;0.5];
-    for i = 1:uav_num-high_num     %Ê×ÏÈĞèÒª½«Î»ÖÃ×ª»»µ½Ö±½Ç×ø±êÏµ
+    for i = 1:uav_num-high_num     %é¦–å…ˆéœ€è¦å°†ä½ç½®è½¬æ¢åˆ°ç›´è§’åæ ‡ç³»
         posi_w_graph(:,i) = posical_xyz(posiG_w_all(:,i),posi_ini);
     end
     for i = 1:high_num
         posi_L_graph(:,i) = posical_xyz(posiG_L(:,i),posi_ini);
     end
 
-    graph_1 = factor_graph_centralization(posi_L_graph,Xerr_gps_high);   %Ê×ÏÈ½¨Á¢È«¾ÖÒò×ÓÍ¼
-    
-    %¼ÓÈë±äÁ¿½ÚµãºÍÏÈÑéÒò×Ó
-    k_number = high_num+1;   %Ç°ÃæÈı¼Ü³¤»ú£¬Òò´Ë³õÊ¼ÖµÉèÎª4
-    for i = 1 : uav_num-high_num
-        graph_1.para_add(posi_w_graph(:,i),Xerr_gps_low,k_number);
-        k_number = k_number + 1;
+    % å°†æœ¬å…³é”®å¸§çš„å…ˆéªŒã€æµ‹è·å’Œ SINS ç›¸å¯¹ä½ç§»å†™å…¥æ»‘åŠ¨çª—å£ã€‚
+    current_node_priors = [posi_L_graph,posi_w_graph];
+    current_sins_position = zeros(3,uav_num-high_num);
+    for i = 1:uav_num-high_num
+        current_sins_position(:,i) = posical_xyz(posiN_w_all(:,i),posi_ini);
     end
-    
-    %¼ÓÈë²â¾àÒò×Ó½Úµã
-    H = zeros(1,6);
-    for i = 1 : uav_num-high_num
+
+    current_range_nodes = zeros(2,0);
+    current_range_measurements = zeros(0,1);
+    for i = 1:uav_num-high_num
         for j = 1:size(uav_link_num{1,i},2)
-           if  uav_link_num{1,i}(1,j)>i && uav_link_num{1,i}(1,j)<=uav_num-high_num %½ÚµãÎªÁÅ»ú
-               %Ê×ÏÈ½«Òò×Ó½ÚµãµÄÖµµÄÑÅ¿É±È¾ØÕóµÈ
-               posi_1 = posi_w_graph(:,i);
-               posi_2 = posi_w_graph(:,uav_link_num{1,i}(1,j));
-               r = sqrt((posi_1 - posi_2)' * (posi_1 - posi_2));
-               H(1,1) = (posi_1(1,1) - posi_2(1,1))/r;
-               H(1,2) =   (posi_1(2,1) - posi_2(2,1))/r;
-               H(1,3) =   (posi_1(3,1) - posi_2(3,1))/r;
-               H(1,4) = - (posi_1(1,1) - posi_2(1,1))/r;
-               H(1,5) = - (posi_1(2,1) - posi_2(2,1))/r;
-               H(1,6) = - (posi_1(3,1) - posi_2(3,1))/r;
-               residuals = r - dis_measure(i,uav_link_num{1,i}(1,j));
-               
-               residuals = 1/dis_err * residuals;   %½«²Ğ²îÏòÁ¿°×»¯
-               jaco = 1/dis_err * H;
-               
-               k1 = i + high_num;
-               k2 = uav_link_num{1,i}(1,j) + high_num;
-               graph_1.factor_add(jaco,residuals,k1,k2,dis_measure(i,uav_link_num{1,i}(1,j)));
-           end
-           
-           if uav_link_num{1,i}(1,j)>i && uav_link_num{1,i}(1,j) > uav_num-high_num %½ÚµãÎª³¤»ú
-               posi_1 = posi_w_graph(:,i);
-               posi_2 = posi_L_graph(:,uav_link_num{1,i}(1,j) - uav_num + high_num);
-               r = sqrt((posi_1 - posi_2)' * (posi_1 - posi_2));
-               H(1,1) = (posi_1(1,1) - posi_2(1,1))/r;
-               H(1,2) =   (posi_1(2,1) - posi_2(2,1))/r;
-               H(1,3) =   (posi_1(3,1) - posi_2(3,1))/r;
-               H(1,4) = - (posi_1(1,1) - posi_2(1,1))/r;
-               H(1,5) = - (posi_1(2,1) - posi_2(2,1))/r;
-               H(1,6) = - (posi_1(3,1) - posi_2(3,1))/r;
-               residuals = r - dis_measure(i,uav_link_num{1,i}(1,j));
-               
-               residuals = 1/dis_err * residuals;   %½«²Ğ²îÏòÁ¿°×»¯
-               jaco = 1/dis_err * H;
-               
-               k1 = i + high_num;
-               k2 = uav_link_num{1,i}(1,j) - uav_num + high_num;
-               graph_1.factor_add(jaco,residuals,k1,k2,dis_measure(i,uav_link_num{1,i}(1,j)));
-           end
+            target = uav_link_num{1,i}(1,j);
+            if target <= i
+                continue;
+            end
+            first_node = high_num + i;
+            if target <= uav_num-high_num
+                second_node = high_num + target;
+            else
+                second_node = target - (uav_num-high_num);
+            end
+            current_range_nodes(:,end+1) = [first_node;second_node];
+            current_range_measurements(end+1,1) = dis_measure(i,target);
         end
     end
-    %%
-    %Òò×ÓÍ¼½âËã
-    graph_1.Gauss_Newton(posi_L_graph,posi_w_graph,Xerr_gps_high,Xerr_gps_low,high_num);
-    graph_1.covariance();     %¼ÆËãÎ»ÖÃĞ­·½²î
-    for  i = 1:uav_num-high_num
-        posi_w_graph(:,i) =  graph_1.parameters(i*3+3*high_num-2:i*3+3*high_num,1);
+
+    current_entry = struct('node_priors', current_node_priors, ...
+        'range_nodes', current_range_nodes, ...
+        'range_measurements', current_range_measurements, ...
+        'motion_delta', zeros(3,uav_num-high_num), ...
+        'has_motion', has_last_sins_after_graph);
+    if has_last_sins_after_graph
+        current_entry.motion_delta = current_sins_position - last_sins_after_graph;
+    end
+    window_history(end+1,1) = current_entry;
+    if numel(window_history) > window_length
+        window_history(1) = [];
+    end
+
+    % åœ¨çª—å£å†…ä¸ºæ¯ä¸€å¸§ä¿ç•™ä½ç½®å…ˆéªŒä¸æµ‹è·å› å­ï¼›ç›¸é‚»ä¸¤å¸§çš„åƒšæœº
+    % é€šè¿‡ SINS ç›¸å¯¹ä½ç§»å› å­ç›¸è¿ï¼Œå› æ­¤å†å²æµ‹è·ä¼šçº¦æŸå½“å‰å¸§çŠ¶æ€ã€‚
+    frame_count = numel(window_history);
+    graph_window = factor_graph_sliding_window(frame_count,uav_num);
+    for frame_index = 1:frame_count
+        entry = window_history(frame_index);
+        graph_window.set_frame_initial(frame_index,entry.node_priors);
+        for leader_index = 1:high_num
+            graph_window.add_prior(frame_index,leader_index, ...
+                entry.node_priors(:,leader_index),Xerr_gps_high);
+        end
+        for follower_index = 1:uav_num-high_num
+            graph_window.add_prior(frame_index,high_num+follower_index, ...
+                entry.node_priors(:,high_num+follower_index),Xerr_gps_low);
+        end
+        for range_index = 1:numel(entry.range_measurements)
+            graph_window.add_range(frame_index,entry.range_nodes(1,range_index), ...
+                entry.range_nodes(2,range_index),entry.range_measurements(range_index),dis_err,1);
+        end
+        if frame_index > 1
+            for follower_index = 1:uav_num-high_num
+                graph_window.add_motion(frame_index-1,frame_index, ...
+                    high_num+follower_index,entry.motion_delta(:,follower_index), ...
+                    window_motion_std);
+            end
+        end
+    end
+
+    graph_window.Gauss_Newton();
+    graph_window.covariance();
+    for i = 1:uav_num-high_num
+        posi_w_graph(:,i) = graph_window.get_position(frame_count,high_num+i);
         posiN_w_graph(:,i) = posical_enu(posi_w_graph(:,i),posi_ini);
-    end
-    
-    for i = 1:uav_num-high_num   %ÌáÈ¡³öĞ­·½²î
-        covariance = diag(graph_1.P_all);
-        cov_graph(:,i) = sqrt(covariance(i*3+3*high_num-2:i*3+3*high_num,1));
+        position_covariance = graph_window.get_position_covariance(frame_count,high_num+i);
+        cov_graph(:,i) = sqrt(max(0,diag(position_covariance)));
     end
     %%
-    %½øĞĞÁ¿²â¸üĞÂ    
-    for i = 1:uav_num-high_num    %¹ßĞÔ/Òò×ÓÍ¼»ìºÏÂË²¨ÓÃ
+    %è¿›è¡Œé‡æµ‹æ›´æ–°
+    for i = 1:uav_num-high_num    %æƒ¯æ€§/å› å­å›¾æ··åˆæ»¤æ³¢ç”¨
         [Xc_all{1,i},PK_all{1,i},Xerr_all{1,i}] = kalm_factor_measure_update(t,posiN_w_all(:,i),posiN_w_graph(:,i),cov_graph(:,i),...
                                           Xc_all{1,i},PK_all{1,i},Xerr_all{1,i},k_flag);
     end
     
-    %ĞŞÕı
+    %ä¿®æ­£
     for i = 1:uav_num-high_num
         [attiN_all(:,i),veloN_all(:,i),posiN_w_all(:,i)] = kalm_modi(attiN_all(:,i),veloN_all(:,i),posiN_w_all(:,i),Xc_all{1,i});
-        %½øĞĞÂË²¨ĞŞÕı
+        %è¿›è¡Œæ»¤æ³¢ä¿®æ­£
         
         Gyro_modi_all(1,i) = Xc_all{1,i}(10,1) + Xc_all{1,i}(13,1);
         Gyro_modi_all(2,i) = Xc_all{1,i}(10,1) + Xc_all{1,i}(13,1);
         Gyro_modi_all(3,i) = Xc_all{1,i}(10,1) + Xc_all{1,i}(13,1);
-        %ÍÓÂİĞŞÕıÁ¿
+        %é™€èºä¿®æ­£é‡
         
         Acc_modi_all(1,i) = Xc_all{1,i}(16,1);
         Acc_modi_all(2,i) = Xc_all{1,i}(17,1);
         Acc_modi_all(3,i) = Xc_all{1,i}(18,1);
     end
+
+    % ä¸‹ä¸€å…³é”®å¸§çš„ç›¸å¯¹ä½ç§»ä»¥æœ¬å¸§èåˆæ ¡æ­£åçš„ SINS çŠ¶æ€ä¸ºèµ·ç‚¹ã€‚
+    for i = 1:uav_num-high_num
+        last_sins_after_graph(:,i) = posical_xyz(posiN_w_all(:,i),posi_ini);
+    end
+    has_last_sins_after_graph = true;
     
-    %¼ÇÂ¼GPSÊı¾İ
+    %è®°å½•GPSæ•°æ®
     kc_kal = kc_kal + 1;
     GPSData(kc_kal,1) = t;GPSerrData(kc_kal,1) = t;
     for i = 1:uav_num-high_num
@@ -413,7 +437,7 @@ while t <=t_stop
     end
     %%
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %¼ÇÂ¼Êı¾İ
+    %è®°å½•æ•°æ®
     k_sins = k_sins + 1;
     TraceData(k_sins,1) = t;
     for i = 1:high_num
@@ -429,7 +453,7 @@ while t <=t_stop
         AttiNData(k_sins,(i-1)*3+2:(i-1)*3+4) = attiN_all(:,i)';
         VeloNData(k_sins,(i-1)*3+2:(i-1)*3+4) = veloN_all(:,i)';
         
-        posi_w_all(:,i) = posical_xyz(posi_w_enu_all(:,i),posi_ini);    %¼ÆËã³ö»ùÓÚÔ­µãµÄÁÅ»ú×ø±êÖµ(ÕæÖµ)
+        posi_w_all(:,i) = posical_xyz(posi_w_enu_all(:,i),posi_ini);    %è®¡ç®—å‡ºåŸºäºåŸç‚¹çš„åƒšæœºåæ ‡å€¼(çœŸå€¼)
         TraceData_xyz(k_sins,(i-1)*3+2:(i-1)*3+4) = posi_w_all(:,i)';
         
         posi_w_temp = posical_xyz(posiN_w_all(:,i),posi_ini);
@@ -443,10 +467,10 @@ while t <=t_stop
 end
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%¼ÆËãÎó²î
-%¼ÆËãµ¼º½¾­Î³¶ÈµÄÎó²î£¨¶È£­£­¡·Ã×£©
-Re=6378137.0;           %µØÇò°ë¾¶£¨Ã×£© 
-f=1/298.257;            %µØÇòµÄÍÖÔ²ÂÊ
+%è®¡ç®—è¯¯å·®
+%è®¡ç®—å¯¼èˆªç»çº¬åº¦çš„è¯¯å·®ï¼ˆåº¦ï¼ï¼ã€‹ç±³ï¼‰
+Re=6378137.0;           %åœ°çƒåŠå¾„ï¼ˆç±³ï¼‰
+f=1/298.257;            %åœ°çƒçš„æ¤­åœ†ç‡
 long = TraceData(1,2) * deg_rad;
 lati = TraceData(1,3) * deg_rad;
 heig = TraceData(1,4);
@@ -471,7 +495,7 @@ fname_6 = ['VeloNData_hybrid',num2str(monte),'.dat'];
 save(fname_6,'VeloNData','-ASCII');
 
 end
-%»æÖÆÍ¼ĞÎ
+%ç»˜åˆ¶å›¾å½¢
 C = rand(uav_num,3);
 
 figure_num = 0;
@@ -499,45 +523,45 @@ max_error = Inf;
 
 error_L = [];
 
-% ±éÀúµ¥Î»×éºÏ (µ¥Î»±àºÅ´Ó 1 µ½ 8)
+% éå†å•ä½ç»„åˆ (å•ä½ç¼–å·ä» 1 åˆ° 8)
 for i = 1:uav_num-high_num
-    % ¼ÆËãµ¥Î» i ºÍµ¥Î» j µÄ¾­Î³¸ßÎó²î
-    idx_i = (i - 1) * 3 + 2; % µ¥Î» i µÄ¾­Î³¸ßÆğÊ¼ÁĞ
+    % è®¡ç®—å•ä½ i å’Œå•ä½ j çš„ç»çº¬é«˜è¯¯å·®
+    idx_i = (i - 1) * 3 + 2; % å•ä½ i çš„ç»çº¬é«˜èµ·å§‹åˆ—
 
     rmse_E_ree_L = sqrt(sum(((SINSerr(:, idx_i))).^2) / rows);
     rmse_N_ree_L = sqrt(sum(((SINSerr(:, idx_i + 1))).^2) / rows);
     rmse_U_ree_L = sqrt(sum((SINSerr(:, idx_i + 2)).^2) / rows);
 
-    % ¼ÆËã¶¨Î»Îó²î
+    % è®¡ç®—å®šä½è¯¯å·®
     error = sqrt(rmse_E_ree_L^2 + rmse_N_ree_L^2 + rmse_U_ree_L^2);
 
-    % ±£´æÎó²îÖµ
+    % ä¿å­˜è¯¯å·®å€¼
     error_L = [error_L; error];
 end
 
-% »ñÈ¡ËùÓĞÎó²îÖĞµÄ×î´óÖµ
+% è·å–æ‰€æœ‰è¯¯å·®ä¸­çš„æœ€å¤§å€¼
 max_error = max(error_L)
-% ÕÒµ½×î´óÎó²îÖµµÄË÷Òı£¬¼´¶ÔÓ¦µÄ·É»ú±àºÅ
+% æ‰¾åˆ°æœ€å¤§è¯¯å·®å€¼çš„ç´¢å¼•ï¼Œå³å¯¹åº”çš„é£æœºç¼–å·
 plane_idx = find(error_L == max_error);
 
-% ÏÔÊ¾×î´óÎó²îºÍ¶ÔÓ¦µÄ·É»ú±àºÅ
-disp(['×î´ó¶¨Î»Îó²îÖµÎª: ', num2str(max_error),'m']);
-disp(['×î´óÎó²î¶ÔÓ¦µÄ·É»ú±àºÅÊÇ: ', num2str(plane_idx)]);
+% æ˜¾ç¤ºæœ€å¤§è¯¯å·®å’Œå¯¹åº”çš„é£æœºç¼–å·
+disp(['æœ€å¤§å®šä½è¯¯å·®å€¼ä¸º: ', num2str(max_error),'m']);
+disp(['æœ€å¤§è¯¯å·®å¯¹åº”çš„é£æœºç¼–å·æ˜¯: ', num2str(plane_idx)]);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-%×îºóÒ»ºÅ³¤»ú-SINSÎ»ÖÃÎó²î
+%æœ€åä¸€å·é•¿æœº-SINSä½ç½®è¯¯å·®
 % plane_idx = 2;
 figure_num = figure_num+1;
 figure(figure_num);
 subplot(3,1,1);plot(SINSerr(:,1),(SINSerr(:,plane_idx*3-1)));grid;hold on;
-titleText = sprintf('%dºÅ·ÉĞĞÆ÷-SINSÎ»ÖÃÎó²î', plane_idx);
-% ÉèÖÃ±êÌâ
+titleText = sprintf('%då·é£è¡Œå™¨-SINSä½ç½®è¯¯å·®', plane_idx);
+% è®¾ç½®æ ‡é¢˜
 title(titleText, 'FontSize', 12);
-ylabel('¾­¶ÈÎó²î(m)','FontSize',10);
+ylabel('ç»åº¦è¯¯å·®(m)','FontSize',10);
 subplot(3,1,2);plot(SINSerr(:,1),(SINSerr(:,plane_idx*3)));grid;hold on;
-ylabel('Î³¶ÈÎó²î(m)','FontSize',10);
+ylabel('çº¬åº¦è¯¯å·®(m)','FontSize',10);
 subplot(3,1,3);plot(SINSerr(:,1),SINSerr(:,plane_idx*3+1));
 % set(gca,'YLim',[-40 40]);
-ylabel('¸ß¶ÈÎó²î(m)','FontSize',10);
-xlabel('Ê±¼ät(s)','FontSize',10);
+ylabel('é«˜åº¦è¯¯å·®(m)','FontSize',10);
+xlabel('æ—¶é—´t(s)','FontSize',10);
 grid;

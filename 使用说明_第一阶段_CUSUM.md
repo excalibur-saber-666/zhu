@@ -137,3 +137,30 @@ test_stage1_cusum_smoke: PASS
 ## 9. 说明
 
 本阶段固定保留原始 5 机、3 长机、2 僚机的实验场景；如需研究其他无人机数量或近距编队，应另建独立实验配置，避免与当前 CUSUM 基线结果混在一起。
+
+## 10. 原始混合导航脚本的滑动窗口
+
+`hybrid_cooperative_navigation.m` 已增加集中式位置滑动窗口；其运行入口仍然是：
+
+```matlab
+hybrid_cooperative_navigation
+```
+
+默认设置位于脚本的“滑动窗口因子图参数”段：
+
+```matlab
+window_length = 10;
+window_motion_std = [2;2;4];
+```
+
+窗口每秒加入一个关键帧，最多保留最近 10 帧。每帧包含长机/僚机位置先验和测距因子；相邻帧的僚机状态由 SINS 相对位移因子相连。因此历史测距会经由运动约束影响当前帧，而不是错误地直接施加到当前状态。
+
+新增类 `factor_graph_sliding_window.m` 仅服务于原始 `hybrid_cooperative_navigation.m`；原来的 `factor_graph_centralization.m` 和 Stage-1 CUSUM 比较入口均未替换。飞行轨迹、KF/SINS 方程和传感器设置没有改动。
+
+可先运行新增单元测试：
+
+```matlab
+test_factor_graph_sliding_window
+```
+
+完整原始脚本仍会按原有逻辑绘图并写入 `*_hybrid*.dat` 仿真输出文件。
