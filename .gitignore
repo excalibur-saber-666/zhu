@@ -1,0 +1,10 @@
+# Generated Monte-Carlo simulation output; source initial-position data is tracked.
+/AttiData_hybrid*.dat
+/AttiNData_hybrid*.dat
+/SINSerr_hybrid*.dat
+/TraceData_hybrid*.dat
+/VeloData_hybrid*.dat
+/VeloNData_hybrid*.dat
+
+# Temporary render and tool artifacts.
+/tmp/
