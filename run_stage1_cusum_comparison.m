@@ -43,12 +43,21 @@ for seed_index = 1:seed_count
         end
 
         cusum_cfg = scenario_cfg;
-        cusum_cfg.cusum_apply = true;
-        if strcmp(comparison_mode, 'original_vs_sliding_cusum')
-            cusum_cfg.graph_mode = 'sliding_window';
-            cusum_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
-        else
-            cusum_cfg.graph_mode = 'single_epoch';
+        switch comparison_mode
+            case 'original_vs_sliding_cusum'
+                cusum_cfg.cusum_apply = true;
+                cusum_cfg.graph_mode = 'sliding_window';
+                cusum_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
+            case 'original_vs_sliding_equal'
+                % Regression/ablation path: same sliding-window graph but
+                % strictly equal range weights and no alarm-edge exclusion.
+                cusum_cfg.cusum_apply = false;
+                cusum_cfg.graph_mode = 'sliding_window';
+                cusum_cfg.sliding_window_exclude_alarmed_edges = false;
+                cusum_cfg.cusum_consensus_enable = false;
+            otherwise
+                cusum_cfg.cusum_apply = true;
+                cusum_cfg.graph_mode = 'single_epoch';
         end
         start_time = tic;
         cusum_result = local_run_cached_simulation(cache, cusum_cfg);
@@ -332,6 +341,7 @@ for step = 1:cache.step_count
         end
 
         admitted_edge_mask = true(numel(edges), 1);
+        graph_solve_timer = tic;
         if strcmp(local_graph_mode(cfg), 'sliding_window')
             % The CUSUM decision is made once when the range arrives.  Its
             % resulting weight travels with that range factor while the key
@@ -373,6 +383,9 @@ for step = 1:cache.step_count
             end
             graph_solver = graph_1;
         end
+        graph_solve_seconds = toc(graph_solve_timer);
+        graph_linear_diagnostics = local_linear_system_diagnostics( ...
+            graph_solver.A, cfg.graph_condition_diagnostics);
         for vehicle = 1:low_num
             posiN_w_graph = posical_enu(posi_w_graph(:, vehicle), posi_ini);
             [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = kalm_factor_measure_update( ...
@@ -393,6 +406,8 @@ for step = 1:cache.step_count
         history(graph_index).edge_count = numel(edges);
         history(graph_index).admitted_range_pairs = detail.global_pairs(admitted_edge_mask, :);
         history(graph_index).excluded_range_pairs = detail.global_pairs(~admitted_edge_mask, :);
+        history(graph_index).graph_solve_seconds = graph_solve_seconds;
+        history(graph_index).graph_linear_diagnostics = graph_linear_diagnostics;
         history(graph_index).cusum_prior_positions = node_positions_prior;
         history(graph_index).cusum_prior_covariances = node_covariances_prior;
         history(graph_index).graph_prior_positions = graph_positions_prior;
@@ -636,7 +651,7 @@ for admission_edge_index = 1:edge_count
     entry.range_weights(entry_index) = weights(admission_edge_index);
 end
 
-entry.has_motion = has_last_sins_after_graph;
+entry.has_motion = has_last_sins_after_graph && cfg.sliding_window_motion_enable;
 if has_last_sins_after_graph
     current_sins_position = zeros(3, low_num);
     for vehicle = 1:low_num
@@ -753,6 +768,40 @@ diagnostics.nonconverged_count = sum(~converged(valid));
 diagnostics.final_step_norm = max(step_norms(valid));
 end
 
+function diagnostics = local_empty_linear_system_diagnostics()
+diagnostics.enabled = false;
+diagnostics.row_count = NaN;
+diagnostics.state_count = NaN;
+diagnostics.rank = NaN;
+diagnostics.minimum_singular_value = NaN;
+diagnostics.condition_number = NaN;
+diagnostics.information_rcond = NaN;
+end
+
+function diagnostics = local_linear_system_diagnostics(A, enabled)
+diagnostics = local_empty_linear_system_diagnostics();
+diagnostics.enabled = enabled;
+if ~enabled
+    return;
+end
+diagnostics.row_count = size(A, 1);
+diagnostics.state_count = size(A, 2);
+singular_values = svd(A, 'econ');
+if isempty(singular_values)
+    return;
+end
+tolerance = max(size(A)) * eps(max(singular_values));
+diagnostics.rank = sum(singular_values > tolerance);
+diagnostics.minimum_singular_value = singular_values(end);
+if singular_values(end) > tolerance
+    diagnostics.condition_number = singular_values(1) / singular_values(end);
+else
+    diagnostics.condition_number = Inf;
+end
+information = A' * A;
+diagnostics.information_rcond = rcond((information + information') / 2);
+end
+
 function history = local_empty_history()
 history.time = NaN;
 history.pairs = zeros(0, 2);
@@ -760,6 +809,8 @@ history.detail = struct();
 history.edge_count = 0;
 history.admitted_range_pairs = zeros(0, 2);
 history.excluded_range_pairs = zeros(0, 2);
+history.graph_solve_seconds = NaN;
+history.graph_linear_diagnostics = local_empty_linear_system_diagnostics();
 history.cusum_prior_positions = zeros(3, 0);
 history.cusum_prior_covariances = zeros(3, 3, 0);
 history.graph_prior_positions = zeros(3, 0);
@@ -1011,10 +1062,11 @@ mode = 'equal_vs_cusum';
 if isfield(cfg, 'comparison_mode') && ~isempty(cfg.comparison_mode)
     mode = lower(char(cfg.comparison_mode));
 end
-valid_modes = {'equal_vs_cusum', 'original_vs_sliding_cusum'};
+valid_modes = {'equal_vs_cusum', 'original_vs_sliding_cusum', 'original_vs_sliding_equal'};
 if ~any(strcmp(mode, valid_modes))
     error('run_stage1_cusum_comparison:InvalidComparisonMode', ...
-        'comparison_mode must be ''equal_vs_cusum'' or ''original_vs_sliding_cusum''.');
+        ['comparison_mode must be ''equal_vs_cusum'', ''original_vs_sliding_cusum'', ' ...
+        'or ''original_vs_sliding_equal''.']);
 end
 end
 
@@ -1030,10 +1082,13 @@ end
 end
 
 function labels = local_method_labels(comparison_mode)
-if strcmp(comparison_mode, 'original_vs_sliding_cusum')
-    labels = {'original', 'sw-cusum'};
-else
-    labels = {'equal', 'cusum'};
+switch comparison_mode
+    case 'original_vs_sliding_cusum'
+        labels = {'original', 'sw-cusum'};
+    case 'original_vs_sliding_equal'
+        labels = {'original', 'sw-equal'};
+    otherwise
+        labels = {'equal', 'cusum'};
 end
 end
 
@@ -1063,8 +1118,15 @@ if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices)
     followers = cfg.plot_follower_indices(:)';
 end
 component_names = {'East error (m)', 'North error (m)', 'Up error (m)'};
+if strcmp(report.comparison_mode, 'original_vs_sliding_equal')
+    enhanced_label = 'Sliding-window Equal FGO';
+    figure_label = 'original vs sliding-window Equal FGO';
+else
+    enhanced_label = 'Sliding-window + CUSUM FGO';
+    figure_label = 'original vs sliding-window CUSUM';
+end
 for follower = followers
-    figure('Name', sprintf('Follower%d: original vs sliding-window CUSUM', follower), ...
+    figure('Name', sprintf('Follower%d: %s', follower, figure_label), ...
         'NumberTitle', 'off');
     for component = 1:3
         subplot(3, 1, component);
@@ -1077,7 +1139,7 @@ for follower = followers
         grid on;
         ylabel(component_names{component});
         if component == 1
-            legend('Original FGO', 'Sliding-window + CUSUM FGO', 'Location', 'best');
+            legend('Original FGO', enhanced_label, 'Location', 'best');
             if seed_count == 1
                 title(sprintf('Follower%d position-error comparison (%s)', follower, scenario_name));
             else
@@ -1097,6 +1159,9 @@ cfg = report.cfg;
 if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
     fprintf('\nStage 1 original FGO vs sliding-window CUSUM-FGO\n');
     reference_label = 'Original';
+elseif strcmp(report.comparison_mode, 'original_vs_sliding_equal')
+    fprintf('\nStage 1 original FGO vs sliding-window Equal-FGO\n');
+    reference_label = 'Original';
 else
     fprintf('\nStage 1 CUSUM comparison\n');
     reference_label = 'Equal';
@@ -1110,7 +1175,11 @@ if cfg.fault_enable
 else
     fprintf('  Fault configuration : disabled\n');
 end
-fprintf('  CUSUM weights       : applied\n');
+if strcmp(report.comparison_mode, 'original_vs_sliding_equal')
+    fprintf('  CUSUM weights       : disabled (equal range weights)\n');
+else
+    fprintf('  CUSUM weights       : applied\n');
+end
 if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
     fprintf('  SW CUSUM consensus  : %s\n', ...
         local_enabled_label(cfg.sliding_window_cusum_consensus_enable));
@@ -1163,7 +1232,9 @@ if numel(cfg.seeds) > 1
     end
 end
 
-local_print_weight_diagnostics(report, scenario_names);
+if ~strcmp(report.comparison_mode, 'original_vs_sliding_equal')
+    local_print_weight_diagnostics(report, scenario_names);
+end
 local_print_gn_diagnostics(report, scenario_names);
 end
 
@@ -1441,6 +1512,18 @@ if ~isnumeric(cfg.sliding_window_motion_std) || ~isreal(cfg.sliding_window_motio
         any(~isfinite(cfg.sliding_window_motion_std(:))) || any(cfg.sliding_window_motion_std(:) <= 0)
     error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionStd', ...
         'sliding_window_motion_std must be a positive finite three-element vector.');
+end
+if ~isscalar(cfg.sliding_window_motion_enable) || ...
+        (~islogical(cfg.sliding_window_motion_enable) && ...
+        ~ismember(cfg.sliding_window_motion_enable, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionEnable', ...
+        'sliding_window_motion_enable must be logical or 0/1.');
+end
+if ~isscalar(cfg.graph_condition_diagnostics) || ...
+        (~islogical(cfg.graph_condition_diagnostics) && ...
+        ~ismember(cfg.graph_condition_diagnostics, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidGraphConditionDiagnostics', ...
+        'graph_condition_diagnostics must be logical or 0/1.');
 end
 if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices) && ...
         (any(cfg.plot_follower_indices ~= floor(cfg.plot_follower_indices)) || ...

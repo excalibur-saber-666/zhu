@@ -274,3 +274,38 @@ test_stage1_redundant_sliding_window_cusum_smoke
 ```
 
 该测试会逐关键帧验证：每架僚机最多排除一条长机边，而且被排除的边就是该僚机当前 CUSUM 值最大的报警边。
+
+## 13. 审计后的消融与数值诊断
+
+当前滑窗是固定长度的移动窗口批量优化；最老帧直接移出，并没有 Schur 补边缘化。
+运动约束是经验 SINS 位置增量约束，不是严格的 IMU 预积分因子。可用以下开关做消融：
+
+```matlab
+cfg.sliding_window_motion_enable = false; % 关闭跨帧 SINS 增量约束
+cfg.sliding_window_exclude_alarmed_edges = false; % 仅 CUSUM 软降权，不做硬隔离
+cfg.graph_condition_diagnostics = true; % 记录每帧秩、奇异值、条件数和求解时间
+```
+
+等权滑窗与单历元的严格回归模式为：
+
+```matlab
+cfg = stage1_cusum_redundant_config('quick');
+cfg.seeds = 23;
+cfg.fault_enable = false;
+cfg.verbose = false;
+cfg.comparison_mode = 'original_vs_sliding_equal';
+cfg.sliding_window_length = 1;
+cfg.sliding_window_motion_enable = false;
+cfg.sliding_window_exclude_alarmed_edges = false;
+report = run_stage1_cusum_comparison(cfg);
+```
+
+建议直接运行以下回归：
+
+```matlab
+test_stage1_window_length_one_regression
+test_stage1_sliding_without_motion_regression
+test_stage1_redundant_geometry
+```
+
+完整的审计结论、三种子消融结果和当前限制见 `阶段一_6机滑窗CUSUM_审计报告.md`。

@@ -19,6 +19,7 @@ for time = 1:2
         zero_edge, positions, covariances, cfg, state, time);
 end
 assert(weights == 1 && detail.baseline_ready && ~detail.calibrating && ...
+    ~detail.baseline_unverified && ...
     abs(detail.baseline_mean) < 1e-12, 'Independent edge calibration failed.');
 
 % Healthy deadzone: small alternating innovations cannot reduce the weight.

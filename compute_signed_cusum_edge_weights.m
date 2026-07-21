@@ -458,6 +458,7 @@ end
 if count >= cfg.cusum_edge_calibration_samples
     state.baseline_valid(state_index) = true;
     state.calibrating(state_index) = false;
+    state.baseline_unverified(state_index) = false;
 end
 end
 

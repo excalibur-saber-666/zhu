@@ -42,5 +42,18 @@ weighted_graph.add_prior(1, 2, [4; 0; 0], [1; 1; 1]);
 weighted_graph.add_range(1, 1, 2, 5, 0.05, 0.01);
 assert(abs(weighted_graph.range_weights(1) - 0.01) < eps, ...
     'Sliding-window range weight was not retained.');
+
+% A range factor is whitened exactly once: sqrt(weight) / range_std.
+% The residual/Jacobian helper used by the window must therefore remain in
+% metres; otherwise the Stage-1 sigma would be applied twice.
+scale_graph = factor_graph_sliding_window(1, 2);
+scale_graph.set_frame_initial(1, [0, 4; 0, 0; 0, 0]);
+scale_graph.add_prior(1, 1, [0; 0; 0], [0.01; 0.01; 0.01]);
+scale_graph.add_prior(1, 2, [4; 0; 0], [100; 100; 100]);
+scale_graph.add_range(1, 1, 2, 5, 0.2, 0.25);
+scale_graph.Gauss_Newton();
+expected_range_row_norm = sqrt(2) * sqrt(0.25) / 0.2;
+assert(abs(norm(scale_graph.A(7, :)) - expected_range_row_norm) < 1e-10, ...
+    'Sliding-window range factor is not whitened exactly once.');
 fprintf('test_factor_graph_sliding_window: PASS\n');
 end

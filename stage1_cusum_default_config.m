@@ -28,6 +28,11 @@ cfg.cusum_apply = true;
 cfg.graph_mode = 'single_epoch';
 cfg.sliding_window_length = 10;
 cfg.sliding_window_motion_std = [2; 2; 4];
+% This is an empirical SINS relative-position constraint, not a full IMU
+% preintegration factor. Keep the switch explicit for ablation studies.
+cfg.sliding_window_motion_enable = true;
+% Optional singular-value diagnostics for the final linearized graph.
+cfg.graph_condition_diagnostics = false;
 % Once the online CUSUM alarm is active, do not admit that range factor into
 % new sliding-window frames.  Existing factors age out normally with the
 % window; this avoids using an offline fault label or retrospective edits.

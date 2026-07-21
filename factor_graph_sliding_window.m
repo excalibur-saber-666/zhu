@@ -189,7 +189,7 @@ classdef factor_graph_sliding_window < handle
                 second_columns = obj.state_columns(frame_index, obj.range_nodes(2, index));
                 first_position = obj.parameters(first_columns);
                 second_position = obj.parameters(second_columns);
-                [residual, jacobian] = residual_cal(first_position, second_position, ...
+                [residual, jacobian] = range_residual_cal(first_position, second_position, ...
                     obj.range_measurements(index));
                 scale = sqrt(obj.range_weights(index)) / obj.range_std(index);
                 row = row + 1;
