@@ -309,3 +309,41 @@ test_stage1_redundant_geometry
 ```
 
 完整的审计结论、三种子消融结果和当前限制见 `阶段一_6机滑窗CUSUM_审计报告.md`。
+
+## 14. 如何切换对比模式
+
+需要自由切换时，请使用通用入口 `run_stage1_cusum_comparison(cfg)`，并只修改
+`cfg.comparison_mode`。三个模式如下：
+
+| `cfg.comparison_mode` | 左侧方法 | 右侧方法 | 用途 |
+| --- | --- | --- | --- |
+| `'equal_vs_cusum'` | 单历元 Equal-FGO | 单历元 CUSUM-FGO | 单独验证 CUSUM 权重 |
+| `'original_vs_sliding_cusum'` | 原始单历元 Equal-FGO | 当前滑窗 + CUSUM + 在线隔离 | 原始方法与现在改进方法的主对比 |
+| `'original_vs_sliding_equal'` | 原始单历元 Equal-FGO | 滑窗等权 FGO | 审计/消融，不使用 CUSUM |
+
+例如，要比较故障边 `(1,6)` 上的“最原始方法”与“现在改进方法”，运行：
+
+```matlab
+cfg = stage1_cusum_redundant_config('full');
+cfg.seeds = [21, 22, 23];
+cfg.fault_enable = true;
+cfg.fault_edge = [1, 6];
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 5;
+
+cfg.comparison_mode = 'original_vs_sliding_cusum';
+cfg.plot_component_comparison = true;
+report = run_stage1_cusum_comparison(cfg);
+```
+
+若只比较两个都是单历元的方法，将最后两行改为：
+
+```matlab
+cfg.comparison_mode = 'equal_vs_cusum';
+cfg.plot_component_comparison = true;
+report = run_stage1_cusum_comparison(cfg);
+```
+
+`run_stage1_sliding_window_cusum_comparison(cfg)` 是一个便捷入口，它固定运行
+`'original_vs_sliding_cusum'` 并自动绘图；要切换模式时不要使用该便捷入口。

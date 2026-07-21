@@ -1118,12 +1118,19 @@ if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices)
     followers = cfg.plot_follower_indices(:)';
 end
 component_names = {'East error (m)', 'North error (m)', 'Up error (m)'};
-if strcmp(report.comparison_mode, 'original_vs_sliding_equal')
-    enhanced_label = 'Sliding-window Equal FGO';
-    figure_label = 'original vs sliding-window Equal FGO';
-else
-    enhanced_label = 'Sliding-window + CUSUM FGO';
-    figure_label = 'original vs sliding-window CUSUM';
+switch report.comparison_mode
+    case 'original_vs_sliding_equal'
+        baseline_label = 'Original FGO';
+        enhanced_label = 'Sliding-window Equal FGO';
+        figure_label = 'original vs sliding-window Equal FGO';
+    case 'original_vs_sliding_cusum'
+        baseline_label = 'Original FGO';
+        enhanced_label = 'Sliding-window + CUSUM FGO';
+        figure_label = 'original vs sliding-window CUSUM';
+    otherwise
+        baseline_label = 'Equal FGO';
+        enhanced_label = 'CUSUM FGO';
+        figure_label = 'single-epoch Equal FGO vs CUSUM FGO';
 end
 for follower = followers
     figure('Name', sprintf('Follower%d: %s', follower, figure_label), ...
@@ -1139,7 +1146,7 @@ for follower = followers
         grid on;
         ylabel(component_names{component});
         if component == 1
-            legend('Original FGO', enhanced_label, 'Location', 'best');
+            legend(baseline_label, enhanced_label, 'Location', 'best');
             if seed_count == 1
                 title(sprintf('Follower%d position-error comparison (%s)', follower, scenario_name));
             else

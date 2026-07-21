@@ -19,6 +19,9 @@ end
 
 cfg.comparison_mode = 'original_vs_sliding_cusum';
 cfg.plot_component_comparison = true;
+% This convenience entry always selects the comparison above.  To switch
+% between all supported modes, set cfg.comparison_mode explicitly and call
+% run_stage1_cusum_comparison(cfg) instead; see stage1_cusum_default_config.
 % The default configuration has cfg.verbose = true, so RMSE, standard
 % deviation, CUSUM-weight, and GN tables accompany the figures.  Preserve an
 % explicit cfg.verbose = false for automated no-output runs.

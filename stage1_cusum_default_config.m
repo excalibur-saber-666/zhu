@@ -47,6 +47,15 @@ cfg.sliding_window_alarm_exclusion_mode = 'all';
 % per-edge CUSUM statistic by default.  The original Stage-1 path keeps its
 % cfg.cusum_consensus_enable setting above.
 cfg.sliding_window_cusum_consensus_enable = false;
+% Comparison-mode quick reference:
+%   'equal_vs_cusum'              : single-epoch Equal-FGO vs single-epoch CUSUM-FGO.
+%   'original_vs_sliding_cusum'   : original single-epoch Equal-FGO vs the
+%                                    current sliding-window + CUSUM method.
+%   'original_vs_sliding_equal'   : audit only; original Equal-FGO vs
+%                                    sliding-window Equal-FGO (no CUSUM).
+% Set cfg.plot_component_comparison = true to draw the corresponding
+% three-axis error figures.  Use run_stage1_cusum_comparison(cfg) when
+% selecting any mode explicitly.
 cfg.comparison_mode = 'equal_vs_cusum';
 cfg.plot_component_comparison = false;
 cfg.plot_follower_indices = [];
