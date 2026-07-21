@@ -67,7 +67,11 @@ classdef factor_graph_sliding_window < handle
         end
 
         function add_range(obj, frame_index, first_node, second_node, measurement, std_value, weight)
-            if nargin < 8
+            % nargin includes obj: with all six public arguments supplied it
+            % is 7.  The previous < 8 check silently replaced every supplied
+            % CUSUM weight with one, making the sliding-window comparison an
+            % equal-weight graph.
+            if nargin < 7
                 weight = 1;
             end
             obj.validate_frame(frame_index);

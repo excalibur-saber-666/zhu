@@ -10,6 +10,9 @@ else
 end
 local_validate_experiment_config(cfg);
 
+comparison_mode = local_comparison_mode(cfg);
+method_labels = local_method_labels(comparison_mode);
+
 scenario_names = local_scenario_names(cfg);
 scenario_count = numel(scenario_names);
 seed_count = numel(cfg.seeds);
@@ -31,20 +34,27 @@ for seed_index = 1:seed_count
 
         equal_cfg = scenario_cfg;
         equal_cfg.cusum_apply = false;
+        equal_cfg.graph_mode = 'single_epoch';
         start_time = tic;
         equal_result = local_run_cached_simulation(cache, equal_cfg);
         run_index = run_index + 1;
         if cfg.verbose
-            local_print_progress(run_index, total_runs, scenario_name, 'equal', seed, toc(start_time));
+            local_print_progress(run_index, total_runs, scenario_name, method_labels{1}, seed, toc(start_time));
         end
 
         cusum_cfg = scenario_cfg;
         cusum_cfg.cusum_apply = true;
+        if strcmp(comparison_mode, 'original_vs_sliding_cusum')
+            cusum_cfg.graph_mode = 'sliding_window';
+            cusum_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
+        else
+            cusum_cfg.graph_mode = 'single_epoch';
+        end
         start_time = tic;
         cusum_result = local_run_cached_simulation(cache, cusum_cfg);
         run_index = run_index + 1;
         if cfg.verbose
-            local_print_progress(run_index, total_runs, scenario_name, 'cusum', seed, toc(start_time));
+            local_print_progress(run_index, total_runs, scenario_name, method_labels{2}, seed, toc(start_time));
         end
 
         original_equal_result = [];
@@ -65,6 +75,8 @@ for seed_index = 1:seed_count
 end
 
 report.cfg = cfg;
+report.comparison_mode = comparison_mode;
+report.method_labels = method_labels;
 report.seed_results = seed_results;
 report.aggregate = local_aggregate(seed_results);
 report.scenario_results = scenario_results;
@@ -75,6 +87,9 @@ for scenario_index = 1:scenario_count
 end
 if cfg.verbose
     local_print_comparison_tables(report, scenario_names);
+end
+if isfield(cfg, 'plot_component_comparison') && cfg.plot_component_comparison
+    local_plot_component_comparison(report, scenario_names);
 end
 end
 
@@ -141,12 +156,14 @@ if nargin < 3
 end
 low_num = cfg.uav_num - cfg.high_num;
 if cfg.assert_node_mapping
-    assert(local_global_to_internal(3, cfg) == 1 && ...
-        local_global_to_internal(4, cfg) == 2 && ...
-        local_global_to_internal(5, cfg) == 3 && ...
-        local_global_to_internal(1, cfg) == 4 && ...
-        local_global_to_internal(2, cfg) == 5, ...
-        'Stage-1 global-to-internal node mapping changed unexpectedly.');
+    for leader = 1:cfg.high_num
+        assert(local_global_to_internal(low_num + leader, cfg) == leader, ...
+            'Leader global-to-internal node mapping changed unexpectedly.');
+    end
+    for follower = 1:low_num
+        assert(local_global_to_internal(follower, cfg) == cfg.high_num + follower, ...
+            'Follower global-to-internal node mapping changed unexpectedly.');
+    end
 end
 
 posi_e_all = load('posi_e_all.dat');
@@ -161,9 +178,15 @@ for vehicle = 1:low_num
     posi_w_all(:, vehicle) = [posi_e_all(1, vehicle); posi_n_all(1, vehicle); posi_u_all(1, vehicle)];
     posi_w_enu_all(:, vehicle) = posical_enu(posi_w_all(:, vehicle), posi_ini);
 end
-for vehicle = 1:cfg.high_num
+base_leader_count = 3;
+for vehicle = 1:min(cfg.high_num, base_leader_count)
     source_index = low_num + vehicle;
     posi_L_all(:, vehicle) = [posi_e_all(1, source_index); posi_n_all(1, source_index); posi_u_all(1, source_index)];
+    posi_L_enu_all(:, vehicle) = posical_enu(posi_L_all(:, vehicle), posi_ini);
+end
+for vehicle = (base_leader_count + 1):cfg.high_num
+    extra_index = vehicle - base_leader_count;
+    posi_L_all(:, vehicle) = cfg.additional_leader_positions_xyz(:, extra_index);
     posi_L_enu_all(:, vehicle) = posical_enu(posi_L_all(:, vehicle), posi_ini);
 end
 
@@ -208,6 +231,9 @@ for vehicle = 1:low_num
 end
 history = repmat(local_empty_history(), cache.graph_count, 1);
 cusum_state = [];
+window_history = repmat(local_empty_window_entry(low_num, cfg.uav_num), 0, 1);
+last_sins_after_graph = zeros(3, low_num);
+has_last_sins_after_graph = false;
 graph_index = 0;
 current_time = 0;
 
@@ -305,50 +331,77 @@ for step = 1:cache.step_count
                 edges, node_positions_prior, node_covariances_prior, cfg, cusum_state, current_time);
         end
 
-        graph_1 = factor_graph_centralization(posi_L_graph, [0.2; 0.2; 0.5]);
-        for vehicle = 1:low_num
-            graph_1.para_add(posi_w_graph(:, vehicle), [10; 10; 20], cfg.high_num + vehicle);
+        admitted_edge_mask = true(numel(edges), 1);
+        if strcmp(local_graph_mode(cfg), 'sliding_window')
+            % The CUSUM decision is made once when the range arrives.  Its
+            % resulting weight travels with that range factor while the key
+            % frame remains inside the window; it is never recomputed from
+            % hindsight data.
+            current_entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, ...
+                posiN_w_all, posi_ini, last_sins_after_graph, has_last_sins_after_graph, cfg);
+            admitted_edge_mask = current_entry.admitted_edge_mask;
+            window_history(end + 1, 1) = current_entry;
+            if numel(window_history) > cfg.sliding_window_length
+                window_history(1) = [];
+            end
+            [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window( ...
+                window_history, cfg, low_num);
+        else
+            graph_1 = factor_graph_centralization(posi_L_graph, [0.2; 0.2; 0.5]);
+            for vehicle = 1:low_num
+                graph_1.para_add(posi_w_graph(:, vehicle), [10; 10; 20], cfg.high_num + vehicle);
+            end
+            for edge_index = 1:numel(edges)
+                global_i = edges(edge_index).global_i;
+                global_j = edges(edge_index).global_j;
+                position_i = graph_positions_prior(:, global_i);
+                position_j = graph_positions_prior(:, global_j);
+                [residual, jaco] = residual_cal(position_i, position_j, edges(edge_index).measurement);
+                scale = sqrt(weights(edge_index));
+                graph_1.factor_add(scale * jaco, scale * residual, ...
+                    local_global_to_internal(global_i, cfg), local_global_to_internal(global_j, cfg), ...
+                    edges(edge_index).measurement, weights(edge_index));
+            end
+            graph_1.Gauss_Newton(posi_L_graph, posi_w_graph, [0.2; 0.2; 0.5], [10; 10; 20], cfg.high_num);
+            graph_1.covariance();
+            covariance = diag(graph_1.P_all);
+            cov_graph = zeros(3, low_num);
+            for vehicle = 1:low_num
+                internal_index = local_global_to_internal(vehicle, cfg);
+                posi_w_graph(:, vehicle) = graph_1.parameters((internal_index - 1) * 3 + 1:internal_index * 3);
+                cov_graph(:, vehicle) = sqrt(covariance((internal_index - 1) * 3 + 1:internal_index * 3));
+            end
+            graph_solver = graph_1;
         end
-        for edge_index = 1:numel(edges)
-            global_i = edges(edge_index).global_i;
-            global_j = edges(edge_index).global_j;
-            position_i = graph_positions_prior(:, global_i);
-            position_j = graph_positions_prior(:, global_j);
-            [residual, jaco] = residual_cal(position_i, position_j, edges(edge_index).measurement);
-            scale = sqrt(weights(edge_index));
-            graph_1.factor_add(scale * jaco, scale * residual, ...
-                local_global_to_internal(global_i, cfg), local_global_to_internal(global_j, cfg), ...
-                edges(edge_index).measurement, weights(edge_index));
-        end
-        graph_1.Gauss_Newton(posi_L_graph, posi_w_graph, [0.2; 0.2; 0.5], [10; 10; 20], cfg.high_num);
-        graph_1.covariance();
-        covariance = diag(graph_1.P_all);
         for vehicle = 1:low_num
-            internal_index = local_global_to_internal(vehicle, cfg);
-            posi_w_graph(:, vehicle) = graph_1.parameters((internal_index - 1) * 3 + 1:internal_index * 3);
             posiN_w_graph = posical_enu(posi_w_graph(:, vehicle), posi_ini);
-            cov_graph = sqrt(covariance((internal_index - 1) * 3 + 1:internal_index * 3));
             [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = kalm_factor_measure_update( ...
-                current_time, posiN_w_all(:, vehicle), posiN_w_graph, cov_graph, ...
+                current_time, posiN_w_all(:, vehicle), posiN_w_graph, cov_graph(:, vehicle), ...
                 Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}, 1);
             [attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle)] = ...
                 kalm_modi(attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle), Xc_all{vehicle});
             gyro_modi_all(:, vehicle) = Xc_all{vehicle}(10:12) + Xc_all{vehicle}(13:15);
             acc_modi_all(:, vehicle) = Xc_all{vehicle}(16:18);
         end
+        for vehicle = 1:low_num
+            last_sins_after_graph(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
+        end
+        has_last_sins_after_graph = true;
         history(graph_index).time = current_time;
         history(graph_index).pairs = detail.global_pairs;
         history(graph_index).detail = detail;
         history(graph_index).edge_count = numel(edges);
+        history(graph_index).admitted_range_pairs = detail.global_pairs(admitted_edge_mask, :);
+        history(graph_index).excluded_range_pairs = detail.global_pairs(~admitted_edge_mask, :);
         history(graph_index).cusum_prior_positions = node_positions_prior;
         history(graph_index).cusum_prior_covariances = node_covariances_prior;
         history(graph_index).graph_prior_positions = graph_positions_prior;
         history(graph_index).graph_follower_positions = posi_w_graph;
-        history(graph_index).graph_follower_covariances = local_extract_follower_covariances( ...
-            graph_1.P_all, low_num, cfg);
-        history(graph_index).gn_iteration_count = graph_1.iteration_count;
-        history(graph_index).gn_final_step_norm = graph_1.final_step_norm;
-        history(graph_index).gn_converged = graph_1.converged;
+        history(graph_index).graph_follower_covariances = local_extract_current_follower_covariances( ...
+            graph_solver, low_num, cfg);
+        history(graph_index).gn_iteration_count = graph_solver.iteration_count;
+        history(graph_index).gn_final_step_norm = graph_solver.final_step_norm;
+        history(graph_index).gn_converged = graph_solver.converged;
     end
 
     for vehicle = 1:low_num
@@ -544,6 +597,151 @@ for vehicle = 1:low_num
 end
 end
 
+function entry = local_empty_window_entry(low_num, node_count)
+entry.node_priors = zeros(3, node_count);
+entry.range_nodes = zeros(2, 0);
+entry.range_measurements = zeros(0, 1);
+entry.range_weights = zeros(0, 1);
+entry.admitted_edge_mask = false(0, 1);
+entry.motion_delta = zeros(3, low_num);
+entry.has_motion = false;
+end
+
+function entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, posiN_w_all, ...
+        posi_ini, last_sins_after_graph, has_last_sins_after_graph, cfg)
+low_num = cfg.uav_num - cfg.high_num;
+entry = local_empty_window_entry(low_num, cfg.uav_num);
+% Sliding-window nodes are ordered [leaders, followers], matching the
+% original centralized factor graph.  CUSUM edge IDs remain in their
+% established global order [followers, leaders] and are converted below.
+entry.node_priors = [graph_positions_prior(:, low_num + 1:end), ...
+    graph_positions_prior(:, 1:low_num)];
+edge_count = numel(edges);
+include_edge = local_window_admission_mask(edges, detail, cfg);
+entry.admitted_edge_mask = include_edge;
+included_count = sum(include_edge);
+entry.range_nodes = zeros(2, included_count);
+entry.range_measurements = zeros(included_count, 1);
+entry.range_weights = zeros(included_count, 1);
+entry_index = 0;
+for admission_edge_index = 1:edge_count
+    if ~include_edge(admission_edge_index)
+        continue;
+    end
+    entry_index = entry_index + 1;
+    entry.range_nodes(:, entry_index) = [ ...
+        local_global_to_internal(edges(admission_edge_index).global_i, cfg); ...
+        local_global_to_internal(edges(admission_edge_index).global_j, cfg)];
+    entry.range_measurements(entry_index) = edges(admission_edge_index).measurement;
+    entry.range_weights(entry_index) = weights(admission_edge_index);
+end
+
+entry.has_motion = has_last_sins_after_graph;
+if has_last_sins_after_graph
+    current_sins_position = zeros(3, low_num);
+    for vehicle = 1:low_num
+        current_sins_position(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
+    end
+    entry.motion_delta = current_sins_position - last_sins_after_graph;
+end
+
+function include_edge = local_window_admission_mask(edges, detail, cfg)
+edge_count = numel(edges);
+include_edge = true(edge_count, 1);
+if ~cfg.sliding_window_exclude_alarmed_edges || ~cfg.cusum_apply || ...
+        ~isfield(detail, 'alarm_active') || numel(detail.alarm_active) ~= edge_count
+    return;
+end
+alarm_active = detail.alarm_active(:);
+switch cfg.sliding_window_alarm_exclusion_mode
+    case 'all'
+        include_edge = ~alarm_active;
+    case 'per_follower_max'
+        low_num = cfg.uav_num - cfg.high_num;
+        if ~isfield(detail, 'cusum_value') || numel(detail.cusum_value) ~= edge_count
+            error('run_stage1_cusum_comparison:MissingCusumDetail', ...
+                'CUSUM values are required for per-follower alarm admission.');
+        end
+        scores = detail.cusum_value(:);
+        for follower = 1:low_num
+            candidates = zeros(0, 1);
+            for candidate_edge_index = 1:edge_count
+                pair = [edges(candidate_edge_index).global_i, edges(candidate_edge_index).global_j];
+                if ~alarm_active(candidate_edge_index) || ~any(pair == follower)
+                    continue;
+                end
+                other_node = pair(pair ~= follower);
+                % Retain the inter-follower range.  The selective rule is for
+                % competing leader ranges that determine this follower's
+                % absolute positioning geometry.
+                if numel(other_node) == 1 && other_node > low_num
+                    candidates(end + 1, 1) = candidate_edge_index; %#ok<AGROW>
+                end
+            end
+            if isempty(candidates)
+                continue;
+            end
+            candidate_scores = scores(candidates);
+            candidate_scores(~isfinite(candidate_scores)) = -Inf;
+            [~, local_index] = max(candidate_scores);
+            include_edge(candidates(local_index)) = false;
+        end
+    otherwise
+        error('run_stage1_cusum_comparison:InvalidSlidingWindowAlarmMode', ...
+            'Unknown sliding_window_alarm_exclusion_mode.');
+end
+end
+end
+
+function [follower_positions, follower_std, graph] = local_solve_sliding_window(window_history, cfg, low_num)
+frame_count = numel(window_history);
+graph = factor_graph_sliding_window(frame_count, cfg.uav_num);
+for frame_index = 1:frame_count
+    entry = window_history(frame_index);
+    graph.set_frame_initial(frame_index, entry.node_priors);
+    for leader_index = 1:cfg.high_num
+        graph.add_prior(frame_index, leader_index, entry.node_priors(:, leader_index), [0.2; 0.2; 0.5]);
+    end
+    for follower_index = 1:low_num
+        graph.add_prior(frame_index, cfg.high_num + follower_index, ...
+            entry.node_priors(:, cfg.high_num + follower_index), [10; 10; 20]);
+    end
+    for range_index = 1:numel(entry.range_measurements)
+        graph.add_range(frame_index, entry.range_nodes(1, range_index), ...
+            entry.range_nodes(2, range_index), entry.range_measurements(range_index), ...
+            cfg.sigma_dis, entry.range_weights(range_index));
+    end
+    if frame_index > 1 && entry.has_motion
+        for follower_index = 1:low_num
+            graph.add_motion(frame_index - 1, frame_index, cfg.high_num + follower_index, ...
+                entry.motion_delta(:, follower_index), cfg.sliding_window_motion_std);
+        end
+    end
+end
+graph.Gauss_Newton();
+graph.covariance();
+follower_positions = zeros(3, low_num);
+follower_std = zeros(3, low_num);
+for vehicle = 1:low_num
+    node_index = cfg.high_num + vehicle;
+    follower_positions(:, vehicle) = graph.get_position(frame_count, node_index);
+    position_covariance = graph.get_position_covariance(frame_count, node_index);
+    follower_std(:, vehicle) = sqrt(max(0, diag(position_covariance)));
+end
+end
+
+function covariances = local_extract_current_follower_covariances(graph_solver, low_num, cfg)
+if isa(graph_solver, 'factor_graph_sliding_window')
+    covariances = zeros(3, 3, low_num);
+    for vehicle = 1:low_num
+        covariances(:, :, vehicle) = graph_solver.get_position_covariance( ...
+            graph_solver.frame_count, cfg.high_num + vehicle);
+    end
+else
+    covariances = local_extract_follower_covariances(graph_solver.P_all, low_num, cfg);
+end
+end
+
 function diagnostics = local_gn_diagnostics(history)
 iterations = [history.gn_iteration_count]';
 step_norms = [history.gn_final_step_norm]';
@@ -560,6 +758,8 @@ history.time = NaN;
 history.pairs = zeros(0, 2);
 history.detail = struct();
 history.edge_count = 0;
+history.admitted_range_pairs = zeros(0, 2);
+history.excluded_range_pairs = zeros(0, 2);
 history.cusum_prior_positions = zeros(3, 0);
 history.cusum_prior_covariances = zeros(3, 3, 0);
 history.graph_prior_positions = zeros(3, 0);
@@ -806,14 +1006,101 @@ else
 end
 end
 
+function mode = local_comparison_mode(cfg)
+mode = 'equal_vs_cusum';
+if isfield(cfg, 'comparison_mode') && ~isempty(cfg.comparison_mode)
+    mode = lower(char(cfg.comparison_mode));
+end
+valid_modes = {'equal_vs_cusum', 'original_vs_sliding_cusum'};
+if ~any(strcmp(mode, valid_modes))
+    error('run_stage1_cusum_comparison:InvalidComparisonMode', ...
+        'comparison_mode must be ''equal_vs_cusum'' or ''original_vs_sliding_cusum''.');
+end
+end
+
+function mode = local_graph_mode(cfg)
+mode = 'single_epoch';
+if isfield(cfg, 'graph_mode') && ~isempty(cfg.graph_mode)
+    mode = lower(char(cfg.graph_mode));
+end
+if ~any(strcmp(mode, {'single_epoch', 'sliding_window'}))
+    error('run_stage1_cusum_comparison:InvalidGraphMode', ...
+        'graph_mode must be ''single_epoch'' or ''sliding_window''.');
+end
+end
+
+function labels = local_method_labels(comparison_mode)
+if strcmp(comparison_mode, 'original_vs_sliding_cusum')
+    labels = {'original', 'sw-cusum'};
+else
+    labels = {'equal', 'cusum'};
+end
+end
+
 function local_print_progress(run_index, total_runs, scenario_name, method_name, seed, elapsed_seconds)
-fprintf('[%2d/%d ] scenario=%-7s method=%-5s seed=%-6g ... done (%.2f s)\n', ...
+fprintf('[%2d/%d ] scenario=%-7s method=%-9s seed=%-6g ... done (%.2f s)\n', ...
     run_index, total_runs, scenario_name, method_name, seed, elapsed_seconds);
+end
+
+function local_plot_component_comparison(report, scenario_names)
+cfg = report.cfg;
+scenario_name = scenario_names{end};
+results = report.scenario_results.(scenario_name);
+seed_count = numel(results);
+time = results(1).equal.time;
+low_num = size(results(1).equal.error_xyz, 3);
+baseline_error = zeros(size(results(1).equal.error_xyz));
+enhanced_error = zeros(size(results(1).cusum.error_xyz));
+for seed_index = 1:seed_count
+    baseline_error = baseline_error + results(seed_index).equal.error_xyz;
+    enhanced_error = enhanced_error + results(seed_index).cusum.error_xyz;
+end
+baseline_error = baseline_error / seed_count;
+enhanced_error = enhanced_error / seed_count;
+
+followers = 1:low_num;
+if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices)
+    followers = cfg.plot_follower_indices(:)';
+end
+component_names = {'East error (m)', 'North error (m)', 'Up error (m)'};
+for follower = followers
+    figure('Name', sprintf('Follower%d: original vs sliding-window CUSUM', follower), ...
+        'NumberTitle', 'off');
+    for component = 1:3
+        subplot(3, 1, component);
+        plot(time, baseline_error(:, component, follower), 'b-', 'LineWidth', 1.0); hold on;
+        plot(time, enhanced_error(:, component, follower), 'r-', 'LineWidth', 1.0);
+        if cfg.fault_enable
+            xline(cfg.fault_start, 'k--', 'HandleVisibility', 'off');
+            xline(cfg.fault_end, 'k--', 'HandleVisibility', 'off');
+        end
+        grid on;
+        ylabel(component_names{component});
+        if component == 1
+            legend('Original FGO', 'Sliding-window + CUSUM FGO', 'Location', 'best');
+            if seed_count == 1
+                title(sprintf('Follower%d position-error comparison (%s)', follower, scenario_name));
+            else
+                title(sprintf('Follower%d mean position-error comparison across %d seeds (%s)', ...
+                    follower, seed_count, scenario_name));
+            end
+        end
+        if component == 3
+            xlabel('Time (s)');
+        end
+    end
+end
 end
 
 function local_print_comparison_tables(report, scenario_names)
 cfg = report.cfg;
-fprintf('\nStage 1 CUSUM comparison\n');
+if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
+    fprintf('\nStage 1 original FGO vs sliding-window CUSUM-FGO\n');
+    reference_label = 'Original';
+else
+    fprintf('\nStage 1 CUSUM comparison\n');
+    reference_label = 'Equal';
+end
 fprintf('  Mode                : %s\n', local_mode_label(cfg));
 fprintf('  Seeds               : %s\n', local_seed_text(cfg.seeds));
 if cfg.fault_enable
@@ -824,37 +1111,46 @@ else
     fprintf('  Fault configuration : disabled\n');
 end
 fprintf('  CUSUM weights       : applied\n');
+if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
+    fprintf('  SW CUSUM consensus  : %s\n', ...
+        local_enabled_label(cfg.sliding_window_cusum_consensus_enable));
+    fprintf('  Alarm-edge admission: %s\n', local_alarm_admission_label(cfg));
+end
 if cfg.cusum_baseline_enable
     fprintf('  Nominal calibration : enabled (warm-up + abrupt-change lock)\n');
 else
     fprintf('  Nominal calibration : disabled\n');
 end
-fprintf('  Output              : disabled (in-memory results only)\n');
+if cfg.plot_component_comparison
+    fprintf('  Output              : command window + figures (no files)\n');
+else
+    fprintf('  Output              : command window only (no files)\n');
+end
 
 fprintf('\nPer-follower positioning summary (averaged across seeds only)\n');
-fprintf('  %-8s %-7s %-10s %14s %22s %14s %16s\n', ...
+fprintf('  %-8s %-10s %-10s %14s %22s %18s %20s\n', ...
     'Scenario', 'Method', 'Follower', 'Full RMSE(m)', 'Fault-window RMSE(m)', ...
-    'Full vs Equal', 'Window vs Equal');
+    ['Full vs ' reference_label], ['Window vs ' reference_label]);
 for scenario_index = 1:numel(scenario_names)
     scenario_name = scenario_names{scenario_index};
     aggregate = report.scenario_aggregates.(scenario_name);
-    local_print_summary_rows(scenario_name, 'equal', aggregate.equal_full_mean, ...
+    local_print_summary_rows(scenario_name, report.method_labels{1}, aggregate.equal_full_mean, ...
         aggregate.equal_window_mean, aggregate.equal_full_mean, aggregate.equal_window_mean);
-    local_print_summary_rows(scenario_name, 'cusum', aggregate.cusum_full_mean, ...
+    local_print_summary_rows(scenario_name, report.method_labels{2}, aggregate.cusum_full_mean, ...
         aggregate.cusum_window_mean, aggregate.equal_full_mean, aggregate.equal_window_mean);
 end
 
 if numel(cfg.seeds) > 1
     fprintf('\nPer-follower RMSE standard deviation across seeds\n');
-    fprintf('  %-8s %-7s %-10s %20s %28s\n', ...
+    fprintf('  %-8s %-10s %-10s %20s %28s\n', ...
         'Scenario', 'Method', 'Follower', 'Full RMSE Std(m)', 'Fault-window RMSE Std(m)');
     for scenario_index = 1:numel(scenario_names)
         scenario_name = scenario_names{scenario_index};
         aggregate = report.scenario_aggregates.(scenario_name);
-        local_print_std_rows(scenario_name, 'equal', aggregate.equal_full_std, aggregate.equal_window_std);
-        local_print_std_rows(scenario_name, 'cusum', aggregate.cusum_full_std, aggregate.cusum_window_std);
+        local_print_std_rows(scenario_name, report.method_labels{1}, aggregate.equal_full_std, aggregate.equal_window_std);
+        local_print_std_rows(scenario_name, report.method_labels{2}, aggregate.cusum_full_std, aggregate.cusum_window_std);
     end
-    fprintf('\nWorst-seed CUSUM-FGO full RMSE\n');
+    fprintf('\nWorst-seed %s full RMSE\n', report.method_labels{2});
     fprintf('  %-8s %-10s %18s %10s\n', 'Scenario', 'Follower', 'Worst RMSE(m)', 'Seed');
     for scenario_index = 1:numel(scenario_names)
         scenario_name = scenario_names{scenario_index};
@@ -873,14 +1169,16 @@ end
 
 function local_print_summary_rows(scenario_name, method_name, full_values, window_values, equal_full, equal_window)
 for vehicle = 1:numel(full_values)
-    if strcmp(method_name, 'equal')
+    if all(full_values(vehicle) == equal_full(vehicle)) && ...
+            ((isnan(window_values(vehicle)) && isnan(equal_window(vehicle))) || ...
+            window_values(vehicle) == equal_window(vehicle))
         full_change = 0;
         window_change = 0;
     else
         full_change = local_percent_change(full_values(vehicle), equal_full(vehicle));
         window_change = local_percent_change(window_values(vehicle), equal_window(vehicle));
     end
-    fprintf('  %-8s %-7s %-10s %14.6f %22.6f %14s %16s\n', ...
+    fprintf('  %-8s %-10s %-10s %14.6f %22.6f %18s %20s\n', ...
         scenario_name, method_name, sprintf('Follower%d', vehicle), ...
         full_values(vehicle), window_values(vehicle), ...
         local_percent_text(full_change), local_percent_text(window_change));
@@ -889,7 +1187,7 @@ end
 
 function local_print_std_rows(scenario_name, method_name, full_std, window_std)
 for vehicle = 1:numel(full_std)
-    fprintf('  %-8s %-7s %-10s %20.6f %28.6f\n', ...
+    fprintf('  %-8s %-10s %-10s %20.6f %28.6f\n', ...
         scenario_name, method_name, sprintf('Follower%d', vehicle), ...
         full_std(vehicle), window_std(vehicle));
 end
@@ -974,7 +1272,7 @@ end
 
 function local_print_gn_diagnostics(report, scenario_names)
 fprintf('\nGN convergence diagnostics\n');
-fprintf('  %-8s %-7s %-6s %15s %14s %14s %17s\n', ...
+    fprintf('  %-8s %-10s %-6s %15s %14s %14s %17s\n', ...
     'Scenario', 'Method', 'Seed', 'Mean iterations', 'Max iterations', ...
     'Nonconverged', 'Final step norm');
 for scenario_index = 1:numel(scenario_names)
@@ -983,15 +1281,15 @@ for scenario_index = 1:numel(scenario_names)
     for seed_index = 1:numel(results)
         equal_gn = results(seed_index).equal.gn_diagnostics;
         cusum_gn = results(seed_index).cusum.gn_diagnostics;
-        local_print_gn_row(scenario_name, 'equal', results(seed_index).seed, equal_gn);
-        local_print_gn_row(scenario_name, 'cusum', results(seed_index).seed, cusum_gn);
+        local_print_gn_row(scenario_name, report.method_labels{1}, results(seed_index).seed, equal_gn);
+        local_print_gn_row(scenario_name, report.method_labels{2}, results(seed_index).seed, cusum_gn);
     end
 end
 fprintf('\n');
 end
 
 function local_print_gn_row(scenario_name, method_name, seed, diagnostics)
-fprintf('  %-8s %-7s %-6g %15.3f %14d %14d %17.3e\n', ...
+ fprintf('  %-8s %-10s %-6g %15.3f %14d %14d %17.3e\n', ...
     scenario_name, method_name, seed, diagnostics.mean_iterations, ...
     diagnostics.max_iterations, diagnostics.nonconverged_count, diagnostics.final_step_norm);
 end
@@ -1027,6 +1325,22 @@ elseif cfg.t_stop <= 20
     label = 'quick';
 else
     label = 'full';
+end
+end
+
+function label = local_enabled_label(value)
+if value
+    label = 'enabled';
+else
+    label = 'disabled';
+end
+end
+
+function label = local_alarm_admission_label(cfg)
+if ~cfg.sliding_window_exclude_alarmed_edges
+    label = 'disabled';
+else
+    label = cfg.sliding_window_alarm_exclusion_mode;
 end
 end
 
@@ -1069,9 +1383,17 @@ end
 end
 
 function local_validate_experiment_config(cfg)
-if cfg.uav_num ~= 5 || cfg.high_num ~= 3
-    error('run_stage1_cusum_comparison:OriginalScenarioOnly', ...
-        'Stage 1 preserves the original five-UAV, three-high-precision-UAV scenario.');
+low_num = cfg.uav_num - cfg.high_num;
+if ~((cfg.uav_num == 5 && cfg.high_num == 3) || (cfg.uav_num == 6 && cfg.high_num == 4)) || low_num ~= 2
+    error('run_stage1_cusum_comparison:UnsupportedScenario', ...
+        'Use the original 5-UAV/3-leader scenario or the redundant 6-UAV/4-leader scenario.');
+end
+extra_leader_count = cfg.high_num - 3;
+if ~isnumeric(cfg.additional_leader_positions_xyz) || ...
+        ~isequal(size(cfg.additional_leader_positions_xyz), [3, extra_leader_count]) || ...
+        any(~isfinite(cfg.additional_leader_positions_xyz(:)))
+    error('run_stage1_cusum_comparison:InvalidAdditionalLeaders', ...
+        'additional_leader_positions_xyz must be a finite 3-by-(high_num-3) matrix.');
 end
 if cfg.dt <= 0 || cfg.graph_interval <= 0 || abs(cfg.graph_interval / cfg.dt - round(cfg.graph_interval / cfg.dt)) > eps
     error('run_stage1_cusum_comparison:InvalidTiming', ...
@@ -1088,4 +1410,44 @@ if cfg.fault_enable && (cfg.fault_start < 0 || cfg.fault_end <= cfg.fault_start 
     error('run_stage1_cusum_comparison:InvalidFaultWindow', ...
         'For an enabled fault, require 0 <= fault_start < fault_end <= t_stop.');
 end
+if ~isscalar(cfg.sliding_window_length) || cfg.sliding_window_length < 1 || ...
+        cfg.sliding_window_length ~= floor(cfg.sliding_window_length)
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowLength', ...
+        'sliding_window_length must be a positive integer.');
+end
+if ~isscalar(cfg.sliding_window_exclude_alarmed_edges) || ...
+        (~islogical(cfg.sliding_window_exclude_alarmed_edges) && ...
+        ~ismember(cfg.sliding_window_exclude_alarmed_edges, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowAlarmExclusion', ...
+        'sliding_window_exclude_alarmed_edges must be logical or 0/1.');
+end
+if ~ischar(cfg.sliding_window_alarm_exclusion_mode) && ~isstring(cfg.sliding_window_alarm_exclusion_mode)
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowAlarmMode', ...
+        'sliding_window_alarm_exclusion_mode must be a character vector or string.');
+end
+alarm_mode = lower(char(cfg.sliding_window_alarm_exclusion_mode));
+if ~any(strcmp(alarm_mode, {'all', 'per_follower_max'}))
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowAlarmMode', ...
+        'sliding_window_alarm_exclusion_mode must be ''all'' or ''per_follower_max''.');
+end
+if ~isscalar(cfg.sliding_window_cusum_consensus_enable) || ...
+        (~islogical(cfg.sliding_window_cusum_consensus_enable) && ...
+        ~ismember(cfg.sliding_window_cusum_consensus_enable, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowConsensus', ...
+        'sliding_window_cusum_consensus_enable must be logical or 0/1.');
+end
+if ~isnumeric(cfg.sliding_window_motion_std) || ~isreal(cfg.sliding_window_motion_std) || ...
+        numel(cfg.sliding_window_motion_std) ~= 3 || ...
+        any(~isfinite(cfg.sliding_window_motion_std(:))) || any(cfg.sliding_window_motion_std(:) <= 0)
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionStd', ...
+        'sliding_window_motion_std must be a positive finite three-element vector.');
+end
+if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices) && ...
+        (any(cfg.plot_follower_indices ~= floor(cfg.plot_follower_indices)) || ...
+        any(cfg.plot_follower_indices < 1) || any(cfg.plot_follower_indices > cfg.uav_num - cfg.high_num))
+    error('run_stage1_cusum_comparison:InvalidPlotFollowers', ...
+        'plot_follower_indices must contain valid follower indices.');
+end
+local_comparison_mode(cfg);
+local_graph_mode(cfg);
 end

@@ -164,3 +164,113 @@ test_factor_graph_sliding_window
 ```
 
 完整原始脚本仍会按原有逻辑绘图并写入 `*_hybrid*.dat` 仿真输出文件。
+
+## 11. 原始 FGO 与“滑动窗口 + CUSUM”对比图
+
+`hybrid_cooperative_navigation.m` 直接运行时只使用滑动窗口，并**不**启用 CUSUM。
+若要公平比较“原始单时刻等权 FGO”与“滑动窗口 + CUSUM-FGO”，请使用新增入口：
+
+```matlab
+cfg = stage1_cusum_default_config('full');
+cfg.seeds = 23;
+
+cfg.fault_enable = true;
+cfg.fault_edge = [2, 3];
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 3;
+
+cfg.sliding_window_length = 10;
+cfg.sliding_window_motion_std = [2; 2; 4];
+cfg.sliding_window_exclude_alarmed_edges = true;
+cfg.sliding_window_cusum_consensus_enable = false;
+
+report = run_stage1_sliding_window_cusum_comparison(cfg);
+```
+
+运行后会为每架僚机分别生成一张三子图：东向、北向、天向位置误差。
+
+- 蓝线：原始单时刻、等权 FGO；
+- 红线：滑动窗口 + 在线 CUSUM 权重 FGO；
+- 黑色虚线：故障起止时刻（仅在 `fault_enable = true` 时出现）。
+
+两种方法在同一随机种子下使用完全相同的 IMU、GPS 和测距随机噪声；唯一的设计差异是，红线方法保留最近 `sliding_window_length` 个关键帧，并对每条新到达的测距边使用在线 CUSUM 权重。窗口内的历史边保留其到达当时确定的权重，不使用未来信息回算。
+
+当某条边的在线 CUSUM 进入报警状态时，`sliding_window_exclude_alarmed_edges = true` 会停止把该边写入新的窗口帧；已经存在的旧因子不会被回溯删除，而是随窗口正常移出。因此该规则不使用 `fault_edge`、故障时间或真值，并能避免持续故障在窗口中反复传播。若要仅研究软降权，可显式设为 `false`。
+
+该五机几何中，每架僚机只有两条可替代的长机边。对单一故障直接取两条边的中位数会把故障值混入参考量，可能使健康边被误降权。因此组合入口默认 `sliding_window_cusum_consensus_enable = false`，使用每条边已标定的在线创新 CUSUM；原有 `run_stage1_cusum_comparison` 的单时刻实验仍保留原本的共识设置。
+
+不设置故障时，可仅比较健康段：
+
+```matlab
+cfg = stage1_cusum_default_config('full');
+cfg.seeds = 23;
+cfg.fault_enable = false;
+report = run_stage1_sliding_window_cusum_comparison(cfg);
+```
+
+这个入口会在命令行输出每架僚机的全时段 RMSE、故障窗口 RMSE、相对原始 FGO 的变化百分比；多种子时还会输出标准差、最差种子、CUSUM 权重与 GN 收敛诊断。同时画三方向对比图，不写入 `*_hybrid*.dat`。如不需要保存返回变量，仍建议在调用末尾添加分号：
+
+```matlab
+run_stage1_sliding_window_cusum_comparison(cfg);
+```
+
+快速冒烟检查（不画图）可运行：
+
+```matlab
+test_stage1_sliding_window_cusum_smoke
+```
+
+## 12. 六机冗余长机 + 选择性报警边剔除（独立实验）
+
+原始五机基线不会被替换。如果要验证“同一僚机有多条报警长机边时，
+只暂停最可疑的一条、其余长机边继续保留”的方案，请使用独立的六机配置：
+
+```matlab
+cfg = stage1_cusum_redundant_config('full');
+cfg.seeds = 23;
+
+cfg.fault_enable = true;
+cfg.fault_edge = [2, 3];
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 3;
+
+report = run_stage1_sliding_window_cusum_comparison(cfg);
+```
+
+这会同时输出命令行 RMSE、CUSUM 诊断表，并为两架僚机绘制东、北、天三方向误差图。若只想先确认程序能运行，可改用：
+
+```matlab
+cfg = stage1_cusum_redundant_config('quick');
+cfg.seeds = 23;
+run_stage1_sliding_window_cusum_comparison(cfg);
+```
+
+六机配置的节点编号为：`1--2` 是 Follower1--Follower2，`3--6` 是 Leader1--Leader4。
+Leader4 的初始局部 ENU 偏置为 `[600; 250; 300] m`，之后使用与原编队相同的既定机动；原有五架飞机的位置数据、飞行轨迹和噪声设置均不修改。
+
+该配置默认启用以下两项专门用于冗余长机的规则：
+
+```matlab
+cfg.cusum_consensus_enable = true;
+cfg.cusum_consensus_leader_only = true;
+cfg.cusum_consensus_min_neighbors = 3;
+cfg.sliding_window_alarm_exclusion_mode = 'per_follower_max';
+```
+
+`per_follower_max` 的含义是：在每一个关键帧，对每架僚机单独检查其报警的“僚机--长机”测距边；只将 CUSUM 值最大的那一条停止写入新的滑动窗口帧。其他长机边，以及僚机--僚机边，都会继续保留。已经进入窗口的历史因子不会被回溯删除，只会随窗口长度正常移出。
+
+如果你要恢复“所有报警边均不进入新窗口”的旧策略，可显式设置：
+
+```matlab
+cfg.sliding_window_alarm_exclusion_mode = 'all';
+```
+
+六机选择性策略的短时回归检查为：
+
+```matlab
+test_stage1_redundant_sliding_window_cusum_smoke
+```
+
+该测试会逐关键帧验证：每架僚机最多排除一条长机边，而且被排除的边就是该僚机当前 CUSUM 值最大的报警边。

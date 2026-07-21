@@ -14,9 +14,37 @@ cfg.uav_num = 5;
 cfg.high_num = 3;
 cfg.communication_range = 500;
 cfg.sigma_dis = 0.2;
+% Optional high-precision leaders beyond the three leaders contained in the
+% original position data.  Each column is an initial local [E; N; U] point
+% in metres and follows the same prescribed manoeuvre thereafter.
+cfg.additional_leader_positions_xyz = zeros(3, 0);
 
 cfg.seeds = 1;
 cfg.cusum_apply = true;
+
+% Graph-selection controls.  The default preserves the published Stage-1
+% equal-weight versus CUSUM comparison.  The sliding-window comparison is
+% enabled only by run_stage1_sliding_window_cusum_comparison.
+cfg.graph_mode = 'single_epoch';
+cfg.sliding_window_length = 10;
+cfg.sliding_window_motion_std = [2; 2; 4];
+% Once the online CUSUM alarm is active, do not admit that range factor into
+% new sliding-window frames.  Existing factors age out normally with the
+% window; this avoids using an offline fault label or retrospective edits.
+cfg.sliding_window_exclude_alarmed_edges = true;
+% 'all' stops every alarmed edge.  'per_follower_max' stops only the largest
+% CUSUM leader edge for each follower at a key frame, preserving the other
+% leader ranges when one bad edge is assumed.
+cfg.sliding_window_alarm_exclusion_mode = 'all';
+% In the five-UAV sliding-window comparison, each follower has only two
+% alternate leader edges.  Their two-value median can include the faulty
+% edge and mislocalize a single fault, so this comparison uses the calibrated
+% per-edge CUSUM statistic by default.  The original Stage-1 path keeps its
+% cfg.cusum_consensus_enable setting above.
+cfg.sliding_window_cusum_consensus_enable = false;
+cfg.comparison_mode = 'equal_vs_cusum';
+cfg.plot_component_comparison = false;
+cfg.plot_follower_indices = [];
 % Healthy-protection tuning: innovation persistence is discounted more
 % quickly and a larger deadzone leaves weak, shared predictor mismatch at
 % full range weight.  These values were checked on independent seeds; they
@@ -50,6 +78,7 @@ cfg.cusum_release_innovation_gate = 0.75;
 % using truth, fault metadata, or an oracle label.
 cfg.cusum_consensus_enable = true;
 cfg.cusum_consensus_min_neighbors = 2;
+cfg.cusum_consensus_leader_only = false;
 
 % Healthy-edge innovation calibration.  The predictor is intentionally kept
 % independent from the graph range update, but its residual can contain a

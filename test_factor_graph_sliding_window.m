@@ -32,5 +32,15 @@ assert(all(isfinite(position_covariance(:))) && ...
     'Sliding-window position covariance is invalid.');
 assert(graph.converged && graph.iteration_count >= 1, ...
     'Sliding-window graph did not converge.');
+
+% A supplied range weight must reach the graph unchanged.  This protects
+% the CUSUM-to-window integration from silently reverting to equal weights.
+weighted_graph = factor_graph_sliding_window(1, 2);
+weighted_graph.set_frame_initial(1, [0, 4; 0, 0; 0, 0]);
+weighted_graph.add_prior(1, 1, [0; 0; 0], [0.01; 0.01; 0.01]);
+weighted_graph.add_prior(1, 2, [4; 0; 0], [1; 1; 1]);
+weighted_graph.add_range(1, 1, 2, 5, 0.05, 0.01);
+assert(abs(weighted_graph.range_weights(1) - 0.01) < eps, ...
+    'Sliding-window range weight was not retained.');
 fprintf('test_factor_graph_sliding_window: PASS\n');
 end
