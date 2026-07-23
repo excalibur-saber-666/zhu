@@ -14,6 +14,10 @@ cfg.uav_num = 5;
 cfg.high_num = 3;
 cfg.communication_range = 500;
 cfg.sigma_dis = 0.2;
+% The first three leaders are initialized from these columns of the supplied
+% position data.  Keeping this mapping explicit lets companion experiments
+% change the follower/leader split without editing the original data files.
+cfg.base_leader_source_indices = [3, 4, 5];
 % Optional high-precision leaders beyond the three leaders contained in the
 % original position data.  Each column is an initial local [E; N; U] point
 % in metres and follows the same prescribed manoeuvre thereafter.
@@ -47,15 +51,15 @@ cfg.sliding_window_alarm_exclusion_mode = 'all';
 % per-edge CUSUM statistic by default.  The original Stage-1 path keeps its
 % cfg.cusum_consensus_enable setting above.
 cfg.sliding_window_cusum_consensus_enable = false;
-% Comparison-mode quick reference:
-%   'equal_vs_cusum'              : single-epoch Equal-FGO vs single-epoch CUSUM-FGO.
-%   'original_vs_sliding_cusum'   : original single-epoch Equal-FGO vs the
-%                                    current sliding-window + CUSUM method.
-%   'original_vs_sliding_equal'   : audit only; original Equal-FGO vs
-%                                    sliding-window Equal-FGO (no CUSUM).
-% Set cfg.plot_component_comparison = true to draw the corresponding
-% three-axis error figures.  Use run_stage1_cusum_comparison(cfg) when
-% selecting any mode explicitly.
+% 对比模式切换说明（运行时只需修改下一行 cfg.comparison_mode）：
+%   'equal_vs_cusum'              : 单历元 Equal-FGO 对比单历元 CUSUM-FGO。
+%   'original_vs_sliding_cusum'   : 原始单历元 Equal-FGO 对比当前
+%                                    滑动窗口 + CUSUM + 在线隔离方法（主对比）。
+%   'original_vs_sliding_equal'   : 仅用于审计/消融：原始 Equal-FGO 对比
+%                                    滑动窗口等权 FGO（不使用 CUSUM）。
+% 将 cfg.plot_component_comparison 设为 true 可绘制三轴误差对比图。
+% 需要自由切换模式时，请使用 run_stage1_cusum_comparison(cfg)，而不要
+% 使用 run_stage1_sliding_window_cusum_comparison(cfg)；后者固定为第二种模式。
 cfg.comparison_mode = 'equal_vs_cusum';
 cfg.plot_component_comparison = false;
 cfg.plot_follower_indices = [];

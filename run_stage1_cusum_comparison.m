@@ -189,7 +189,12 @@ for vehicle = 1:low_num
 end
 base_leader_count = 3;
 for vehicle = 1:min(cfg.high_num, base_leader_count)
-    source_index = low_num + vehicle;
+    source_index = cfg.base_leader_source_indices(vehicle);
+    if source_index > size(posi_e_all, 2) || source_index > size(posi_n_all, 2) || ...
+            source_index > size(posi_u_all, 2)
+        error('run_stage1_cusum_comparison:LeaderSourceOutOfRange', ...
+            'base_leader_source_indices contains a column unavailable in the position data.');
+    end
     posi_L_all(:, vehicle) = [posi_e_all(1, source_index); posi_n_all(1, source_index); posi_u_all(1, source_index)];
     posi_L_enu_all(:, vehicle) = posical_enu(posi_L_all(:, vehicle), posi_ini);
 end
@@ -1462,9 +1467,21 @@ end
 
 function local_validate_experiment_config(cfg)
 low_num = cfg.uav_num - cfg.high_num;
-if ~((cfg.uav_num == 5 && cfg.high_num == 3) || (cfg.uav_num == 6 && cfg.high_num == 4)) || low_num ~= 2
+is_original_scenario = cfg.uav_num == 5 && cfg.high_num == 3 && low_num == 2;
+is_redundant_scenario = cfg.uav_num == 6 && cfg.high_num == 4 && low_num == 2;
+is_three_follower_scenario = cfg.uav_num == 6 && cfg.high_num == 3 && low_num == 3;
+if ~(is_original_scenario || is_redundant_scenario || is_three_follower_scenario)
     error('run_stage1_cusum_comparison:UnsupportedScenario', ...
-        'Use the original 5-UAV/3-leader scenario or the redundant 6-UAV/4-leader scenario.');
+        ['Use the original 5-UAV/3-leader scenario, the redundant 6-UAV/4-leader scenario, ' ...
+        'or the 6-UAV/3-follower/3-leader scenario.']);
+end
+if ~isnumeric(cfg.base_leader_source_indices) || ...
+        ~isequal(size(cfg.base_leader_source_indices), [1, 3]) || ...
+        any(~isfinite(cfg.base_leader_source_indices)) || ...
+        any(cfg.base_leader_source_indices < 1) || ...
+        any(cfg.base_leader_source_indices ~= floor(cfg.base_leader_source_indices))
+    error('run_stage1_cusum_comparison:InvalidLeaderSources', ...
+        'base_leader_source_indices must be a row vector containing three positive integers.');
 end
 extra_leader_count = cfg.high_num - 3;
 if ~isnumeric(cfg.additional_leader_positions_xyz) || ...

@@ -347,3 +347,43 @@ report = run_stage1_cusum_comparison(cfg);
 
 `run_stage1_sliding_window_cusum_comparison(cfg)` 是一个便捷入口，它固定运行
 `'original_vs_sliding_cusum'` 并自动绘图；要切换模式时不要使用该便捷入口。
+
+## 15. 三架僚机、三架长机（3F3L）实验
+
+原来的六机冗余配置是“两架僚机、四架长机”。要测试“三架僚机、三架长机”，请使用
+`stage1_cusum_3f3l_config`，不要直接在原配置中只修改 `uav_num` 或 `high_num`。
+新配置中节点 `1--3` 为僚机、节点 `4--6` 为长机；为保持原来“僚机2--长机1”故障的
+含义，默认故障边已改为 `[2, 4]`，而 `[2, 3]` 在此配置中是僚机间测距边。
+
+下面的代码比较原始单历元 FGO 与滑动窗口 + CUSUM + 在线隔离：
+
+```matlab
+cfg = stage1_cusum_3f3l_config('full');
+cfg.seeds = [21, 22, 23];
+
+cfg.fault_enable = true;
+cfg.fault_edge = [2, 4];       % Follower2--Leader1
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 3;
+
+cfg.comparison_mode = 'original_vs_sliding_cusum';
+cfg.plot_component_comparison = true;
+report = run_stage1_cusum_comparison(cfg);
+```
+
+该配置使用数据中的三组长机初始位置，使每架僚机到三架长机的九条测距边均在 500 m
+通信范围内，且初始三维几何满秩。三架长机的冗余度低于原来的四架长机，因此结果不应
+直接预期为更好；需要以输出的三架僚机 RMSE 分别判断。运行前可执行
+`test_stage1_3f3l_smoke` 进行快速检查。
+
+在上述配置、`seeds = [21, 22, 23]` 下，故障窗口三维 RMSE 的平均值分别为：
+
+| 僚机 | 原始单历元 FGO (m) | 滑动窗口 + CUSUM (m) | 相对变化 |
+| --- | ---: | ---: | ---: |
+| Follower1 | 3.335822 | 1.240454 | -62.81% |
+| Follower2 | 3.275175 | 1.111090 | -66.08% |
+| Follower3 | 1.913215 | 0.749435 | -60.83% |
+
+这组数字仅对应 `Follower2--Leader1` 的 `+3 m`、100--150 s 单边故障；更换故障边、
+偏置或随机种子后，应以重新运行的汇总表为准。

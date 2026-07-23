@@ -111,7 +111,7 @@ cov_graph = zeros(3,uav_num-high_num);
 %-------------------滑动窗口因子图参数------------%
 % 窗口长度采用 Zhu 等文中的 10 个关键帧。每帧间隔为 T_D=1 s，
 % 因此窗口覆盖最近约 10 s 的测距和惯性相对位移约束。
-window_length = 10;
+window_length = 5;
 window_motion_std = [2;2;4];   % SINS 相邻关键帧相对位移标准差，单位 m
 window_history = repmat(struct('node_priors', zeros(3,uav_num), ...
     'range_nodes', zeros(2,0), 'range_measurements', zeros(0,1), ...
