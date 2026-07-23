@@ -246,6 +246,9 @@ end
 history = repmat(local_empty_history(), cache.graph_count, 1);
 cusum_state = [];
 window_history = repmat(local_empty_window_entry(low_num, cfg.uav_num), 0, 1);
+imu_interval_buffer = local_empty_imu_interval_buffer(low_num);
+imu_preint_active = strcmp(local_graph_mode(cfg), 'sliding_window') && ...
+    strcmp(local_sliding_window_motion_model(cfg), 'imu_preint');
 last_sins_after_graph = zeros(3, low_num);
 has_last_sins_after_graph = false;
 graph_index = 0;
@@ -287,10 +290,22 @@ for step = 1:cache.step_count
             gyro_r(:, vehicle) / 0.01745329252 + gyro_wg(:, vehicle) / 0.01745329252;
         Fb_noise = Fb + acc_r(:, vehicle);
         Fb_noise_all(:, vehicle) = Fb_noise;
+        % IMU preintegration caches exactly the bias-corrected samples that
+        % enter SINS.  Wibb_noise is deg/s here; the factor graph uses SI
+        % rad/s.  Graph bias states therefore represent residual bias after
+        % the existing KF/SINS correction rather than a duplicate correction.
+        gyro_for_sins_deg_s = Wibb_noise - gyro_modi_all(:, vehicle) / 0.01745329252;
+        acc_for_sins_mps2 = Fb_noise - acc_modi_all(:, vehicle);
+        if imu_preint_active
+            imu_interval_buffer{vehicle}.gyro_rad_s(:, end + 1) = gyro_for_sins_deg_s * pi / 180;
+            imu_interval_buffer{vehicle}.specific_force_mps2(:, end + 1) = acc_for_sins_mps2;
+            imu_interval_buffer{vehicle}.dt(end + 1) = cfg.dt;
+            imu_interval_buffer{vehicle}.time(end + 1) = current_time;
+        end
         [attiN_all(:, vehicle), WnbbA_old(:, vehicle)] = atti_cal_cq_modi(cfg.dt, ...
-            Wibb_noise - gyro_modi_all(:, vehicle) / 0.01745329252, attiN_all(:, vehicle), ...
+            gyro_for_sins_deg_s, attiN_all(:, vehicle), ...
             veloN_all(:, vehicle), posiN_w_all(:, vehicle), WnbbA_old(:, vehicle));
-        veloN_all(:, vehicle) = velo_cal(cfg.dt, Fb_noise - acc_modi_all(:, vehicle), ...
+        veloN_all(:, vehicle) = velo_cal(cfg.dt, acc_for_sins_mps2, ...
             attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle));
         posiN_w_all(:, vehicle) = posi_cal(cfg.dt, veloN_all(:, vehicle), posiN_w_all(:, vehicle));
     end
@@ -346,6 +361,7 @@ for step = 1:cache.step_count
         end
 
         admitted_edge_mask = true(numel(edges), 1);
+        current_entry = local_empty_window_entry(low_num, cfg.uav_num);
         graph_solve_timer = tic;
         if strcmp(local_graph_mode(cfg), 'sliding_window')
             % The CUSUM decision is made once when the range arrives.  Its
@@ -353,14 +369,24 @@ for step = 1:cache.step_count
             % frame remains inside the window; it is never recomputed from
             % hindsight data.
             current_entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, ...
-                posiN_w_all, posi_ini, last_sins_after_graph, has_last_sins_after_graph, cfg);
+                posiN_w_all, veloN_all, attiN_all, imu_interval_buffer, posi_ini, ...
+                last_sins_after_graph, has_last_sins_after_graph, cfg);
             admitted_edge_mask = current_entry.admitted_edge_mask;
             window_history(end + 1, 1) = current_entry;
-            if numel(window_history) > cfg.sliding_window_length
+            window_limit = local_active_window_length(cfg);
+            if numel(window_history) > window_limit
                 window_history(1) = [];
             end
-            [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window( ...
-                window_history, cfg, low_num);
+            if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
+                [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window_imu_preint( ...
+                    window_history, cfg, low_num);
+            else
+                [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window( ...
+                    window_history, cfg, low_num);
+            end
+            if imu_preint_active
+                imu_interval_buffer = local_empty_imu_interval_buffer(low_num);
+            end
         else
             graph_1 = factor_graph_centralization(posi_L_graph, [0.2; 0.2; 0.5]);
             for vehicle = 1:low_num
@@ -422,6 +448,9 @@ for step = 1:cache.step_count
         history(graph_index).gn_iteration_count = graph_solver.iteration_count;
         history(graph_index).gn_final_step_norm = graph_solver.final_step_norm;
         history(graph_index).gn_converged = graph_solver.converged;
+        history(graph_index).imu_preintegration_seconds = current_entry.preintegration_seconds;
+        history(graph_index).imu_sample_counts = current_entry.imu_sample_counts;
+        history(graph_index).imu_delta_t = current_entry.imu_delta_t;
     end
 
     for vehicle = 1:low_num
@@ -441,6 +470,7 @@ result.final_cusum_state = cusum_state;
 result.metrics = local_metrics(result, cfg);
 result.diagnostics = local_diagnostics(history, cfg);
 result.gn_diagnostics = local_gn_diagnostics(history);
+result.imu_preintegration_diagnostics = local_imu_preintegration_diagnostics(history);
 end
 
 function [gps_low, gps_high] = local_cached_gps_measurements(posi_low, posi_high, cache, graph_index)
@@ -619,6 +649,14 @@ end
 
 function entry = local_empty_window_entry(low_num, node_count)
 entry.node_priors = zeros(3, node_count);
+entry.follower_velocity_prior = zeros(3, low_num);
+entry.follower_rotation_prior = repmat(eye(3), 1, 1, low_num);
+entry.follower_gyro_bias_prior = zeros(3, low_num);
+entry.follower_acc_bias_prior = zeros(3, low_num);
+entry.preintegrations = cell(1, low_num);
+entry.preintegration_seconds = 0;
+entry.imu_sample_counts = zeros(low_num, 1);
+entry.imu_delta_t = zeros(low_num, 1);
 entry.range_nodes = zeros(2, 0);
 entry.range_measurements = zeros(0, 1);
 entry.range_weights = zeros(0, 1);
@@ -628,7 +666,8 @@ entry.has_motion = false;
 end
 
 function entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, posiN_w_all, ...
-        posi_ini, last_sins_after_graph, has_last_sins_after_graph, cfg)
+        veloN_all, attiN_all, imu_interval_buffer, posi_ini, last_sins_after_graph, ...
+        has_last_sins_after_graph, cfg)
 low_num = cfg.uav_num - cfg.high_num;
 entry = local_empty_window_entry(low_num, cfg.uav_num);
 % Sliding-window nodes are ordered [leaders, followers], matching the
@@ -653,16 +692,60 @@ for admission_edge_index = 1:edge_count
         local_global_to_internal(edges(admission_edge_index).global_i, cfg); ...
         local_global_to_internal(edges(admission_edge_index).global_j, cfg)];
     entry.range_measurements(entry_index) = edges(admission_edge_index).measurement;
-    entry.range_weights(entry_index) = weights(admission_edge_index);
+entry.range_weights(entry_index) = weights(admission_edge_index);
 end
 
-entry.has_motion = has_last_sins_after_graph && cfg.sliding_window_motion_enable;
+for vehicle = 1:low_num
+    entry.follower_velocity_prior(:, vehicle) = veloN_all(:, vehicle);
+    entry.follower_rotation_prior(:, :, vehicle) = local_enu_rotation_from_attitude(attiN_all(:, vehicle));
+end
+motion_model = local_sliding_window_motion_model(cfg);
+entry.has_motion = has_last_sins_after_graph && cfg.sliding_window_motion_enable && ...
+    strcmp(motion_model, 'sins_delta');
 if has_last_sins_after_graph
     current_sins_position = zeros(3, low_num);
     for vehicle = 1:low_num
         current_sins_position(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
     end
     entry.motion_delta = current_sins_position - last_sins_after_graph;
+end
+if strcmp(motion_model, 'imu_preint')
+    noise = imu_preintegration_default_noise(cfg);
+    preintegration_timer = tic;
+    for vehicle = 1:low_num
+        samples = imu_interval_buffer{vehicle};
+        if isempty(samples.dt)
+            error('run_stage1_cusum_comparison:MissingImuSamples', ...
+                'IMU preintegration mode requires samples for every graph interval.');
+        end
+        % Inputs are already corrected by the current KF/SINS bias estimate;
+        % graph bias priors are residual corrections relative to that input.
+        entry.preintegrations{vehicle} = imu_preintegrate_interval(samples.gyro_rad_s, ...
+            samples.specific_force_mps2, samples.dt, zeros(3, 1), zeros(3, 1), noise);
+        entry.imu_sample_counts(vehicle) = entry.preintegrations{vehicle}.sample_count;
+        entry.imu_delta_t(vehicle) = entry.preintegrations{vehicle}.delta_t;
+    end
+    entry.preintegration_seconds = toc(preintegration_timer);
+end
+end
+
+function buffers = local_empty_imu_interval_buffer(low_num)
+template = struct('gyro_rad_s', zeros(3, 0), 'specific_force_mps2', zeros(3, 0), ...
+    'dt', zeros(1, 0), 'time', zeros(1, 0));
+buffers = repmat({template}, 1, low_num);
+end
+
+function rotation = local_enu_rotation_from_attitude(attitude_deg)
+roll = attitude_deg(1) * pi / 180;
+pitch = attitude_deg(2) * pi / 180;
+heading = attitude_deg(3) * pi / 180;
+% Existing SINS uses Cbn for navigation-to-body, hence R_enu_body = Cbn'.
+cbn = [cos(roll)*cos(heading)+sin(roll)*sin(pitch)*sin(heading), ...
+    -cos(roll)*sin(heading)+sin(roll)*sin(pitch)*cos(heading), -sin(roll)*cos(pitch); ...
+    cos(pitch)*sin(heading), cos(pitch)*cos(heading), sin(pitch); ...
+    sin(roll)*cos(heading)-cos(roll)*sin(pitch)*sin(heading), ...
+    -sin(roll)*sin(heading)-cos(roll)*sin(pitch)*cos(heading), cos(roll)*cos(pitch)];
+rotation = cbn';
 end
 
 function include_edge = local_window_admission_mask(edges, detail, cfg)
@@ -711,7 +794,6 @@ switch cfg.sliding_window_alarm_exclusion_mode
             'Unknown sliding_window_alarm_exclusion_mode.');
 end
 end
-end
 
 function [follower_positions, follower_std, graph] = local_solve_sliding_window(window_history, cfg, low_num)
 frame_count = numel(window_history);
@@ -750,8 +832,56 @@ for vehicle = 1:low_num
 end
 end
 
+function [follower_positions, follower_std, graph] = local_solve_sliding_window_imu_preint(window_history, cfg, low_num)
+frame_count = numel(window_history);
+graph = factor_graph_sliding_window_imu_preint(frame_count, cfg.uav_num, cfg.high_num, cfg);
+prior_std = struct('position', cfg.imu_preint_position_prior_std, ...
+    'velocity', cfg.imu_preint_velocity_prior_std, ...
+    'rotation', cfg.imu_preint_rotation_prior_std, ...
+    'gyro_bias', cfg.imu_preint_gyro_bias_prior_std, ...
+    'acc_bias', cfg.imu_preint_acc_bias_prior_std);
+for frame_index = 1:frame_count
+    entry = window_history(frame_index);
+    graph.set_frame_initial(frame_index, entry.node_priors, entry.follower_velocity_prior, ...
+        entry.follower_rotation_prior, entry.follower_gyro_bias_prior, entry.follower_acc_bias_prior);
+    for leader_index = 1:cfg.high_num
+        graph.add_leader_prior(frame_index, leader_index, entry.node_priors(:, leader_index), [0.2; 0.2; 0.5]);
+    end
+    for follower_index = 1:low_num
+        node_index = cfg.high_num + follower_index;
+        state = struct('p', entry.node_priors(:, node_index), ...
+            'v', entry.follower_velocity_prior(:, follower_index), ...
+            'R', entry.follower_rotation_prior(:, :, follower_index), ...
+            'bg', entry.follower_gyro_bias_prior(:, follower_index), ...
+            'ba', entry.follower_acc_bias_prior(:, follower_index));
+        graph.add_follower_prior(frame_index, follower_index, state, prior_std);
+    end
+    for range_index = 1:numel(entry.range_measurements)
+        graph.add_range(frame_index, entry.range_nodes(1, range_index), ...
+            entry.range_nodes(2, range_index), entry.range_measurements(range_index), ...
+            cfg.sigma_dis, entry.range_weights(range_index));
+    end
+    if frame_index > 1
+        for follower_index = 1:low_num
+            graph.add_imu_factor(frame_index - 1, frame_index, follower_index, ...
+                entry.preintegrations{follower_index});
+        end
+    end
+end
+graph.Gauss_Newton();
+graph.covariance();
+follower_positions = zeros(3, low_num);
+follower_std = zeros(3, low_num);
+for vehicle = 1:low_num
+    node_index = cfg.high_num + vehicle;
+    follower_positions(:, vehicle) = graph.get_position(frame_count, node_index);
+    position_covariance = graph.get_position_covariance(frame_count, node_index);
+    follower_std(:, vehicle) = sqrt(max(0, diag(position_covariance)));
+end
+end
+
 function covariances = local_extract_current_follower_covariances(graph_solver, low_num, cfg)
-if isa(graph_solver, 'factor_graph_sliding_window')
+if isa(graph_solver, 'factor_graph_sliding_window') || isa(graph_solver, 'factor_graph_sliding_window_imu_preint')
     covariances = zeros(3, 3, low_num);
     for vehicle = 1:low_num
         covariances(:, :, vehicle) = graph_solver.get_position_covariance( ...
@@ -771,6 +901,17 @@ diagnostics.mean_iterations = mean(iterations(valid));
 diagnostics.max_iterations = max(iterations(valid));
 diagnostics.nonconverged_count = sum(~converged(valid));
 diagnostics.final_step_norm = max(step_norms(valid));
+end
+
+function diagnostics = local_imu_preintegration_diagnostics(history)
+seconds = [history.imu_preintegration_seconds]';
+sample_counts = vertcat(history.imu_sample_counts);
+delta_t = vertcat(history.imu_delta_t);
+diagnostics.total_seconds = sum(seconds(isfinite(seconds)));
+diagnostics.mean_seconds_per_graph = mean(seconds(isfinite(seconds)));
+diagnostics.mean_sample_count = mean(sample_counts(sample_counts > 0));
+diagnostics.mean_delta_t = mean(delta_t(delta_t > 0));
+diagnostics.max_sample_count = max([0; sample_counts(:)]);
 end
 
 function diagnostics = local_empty_linear_system_diagnostics()
@@ -824,6 +965,9 @@ history.graph_follower_covariances = zeros(3, 3, 0);
 history.gn_iteration_count = NaN;
 history.gn_final_step_norm = NaN;
 history.gn_converged = false;
+history.imu_preintegration_seconds = 0;
+history.imu_sample_counts = zeros(0, 1);
+history.imu_delta_t = zeros(0, 1);
 end
 
 function metrics = local_metrics(result, cfg)
@@ -1083,6 +1227,25 @@ end
 if ~any(strcmp(mode, {'single_epoch', 'sliding_window'}))
     error('run_stage1_cusum_comparison:InvalidGraphMode', ...
         'graph_mode must be ''single_epoch'' or ''sliding_window''.');
+end
+end
+
+function mode = local_sliding_window_motion_model(cfg)
+mode = 'sins_delta';
+if isfield(cfg, 'sliding_window_motion_model') && ~isempty(cfg.sliding_window_motion_model)
+    mode = lower(char(cfg.sliding_window_motion_model));
+end
+if ~any(strcmp(mode, {'none', 'sins_delta', 'imu_preint'}))
+    error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionModel', ...
+        'sliding_window_motion_model must be ''none'', ''sins_delta'', or ''imu_preint''.');
+end
+end
+
+function length_value = local_active_window_length(cfg)
+if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
+    length_value = cfg.imu_preint_window_length;
+else
+    length_value = cfg.sliding_window_length;
 end
 end
 
@@ -1542,6 +1705,39 @@ if ~isscalar(cfg.sliding_window_motion_enable) || ...
         ~ismember(cfg.sliding_window_motion_enable, [0, 1]))
     error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionEnable', ...
         'sliding_window_motion_enable must be logical or 0/1.');
+end
+local_sliding_window_motion_model(cfg);
+if ~isscalar(cfg.imu_preint_window_length) || cfg.imu_preint_window_length < 1 || ...
+        cfg.imu_preint_window_length ~= floor(cfg.imu_preint_window_length)
+    error('run_stage1_cusum_comparison:InvalidImuPreintWindowLength', ...
+        'imu_preint_window_length must be a positive integer.');
+end
+positive_scalar_fields = {'imu_preint_gyro_bias_repropagate_threshold', ...
+    'imu_preint_acc_bias_repropagate_threshold', 'imu_preint_gyro_noise_std', ...
+    'imu_preint_acc_noise_std', 'imu_preint_gyro_bias_rw_std', ...
+    'imu_preint_acc_bias_rw_std', 'imu_preint_gn_step_tolerance', ...
+    'imu_preint_position_eps', 'imu_preint_velocity_eps', 'imu_preint_rotation_eps', ...
+    'imu_preint_gyro_bias_eps', 'imu_preint_acc_bias_eps'};
+for field_index = 1:numel(positive_scalar_fields)
+    value = cfg.(positive_scalar_fields{field_index});
+    if ~isscalar(value) || ~isreal(value) || ~isfinite(value) || value <= 0
+        error('run_stage1_cusum_comparison:InvalidImuPreintParameter', ...
+            '%s must be a positive finite scalar.', positive_scalar_fields{field_index});
+    end
+end
+if ~isscalar(cfg.imu_preint_gn_max_iterations) || cfg.imu_preint_gn_max_iterations < 1 || ...
+        cfg.imu_preint_gn_max_iterations ~= floor(cfg.imu_preint_gn_max_iterations)
+    error('run_stage1_cusum_comparison:InvalidImuPreintIterations', ...
+        'imu_preint_gn_max_iterations must be a positive integer.');
+end
+positive_vector_fields = {'imu_preint_position_prior_std', 'imu_preint_velocity_prior_std', ...
+    'imu_preint_rotation_prior_std', 'imu_preint_gyro_bias_prior_std', 'imu_preint_acc_bias_prior_std'};
+for field_index = 1:numel(positive_vector_fields)
+    value = cfg.(positive_vector_fields{field_index});
+    if ~isnumeric(value) || ~isreal(value) || numel(value) ~= 3 || any(~isfinite(value(:))) || any(value(:) <= 0)
+        error('run_stage1_cusum_comparison:InvalidImuPreintPriorStd', ...
+            '%s must be a positive finite three-element vector.', positive_vector_fields{field_index});
+    end
 end
 if ~isscalar(cfg.graph_condition_diagnostics) || ...
         (~islogical(cfg.graph_condition_diagnostics) && ...

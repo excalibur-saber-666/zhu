@@ -387,3 +387,62 @@ report = run_stage1_cusum_comparison(cfg);
 
 这组数字仅对应 `Follower2--Leader1` 的 `+3 m`、100--150 s 单边故障；更换故障边、
 偏置或随机种子后，应以重新运行的汇总表为准。
+
+## 16. IMU 预积分滑动窗口
+
+默认仍是原来的 SINS 位置增量滑动窗口，不会因为新增代码自动切换：
+
+```matlab
+cfg.sliding_window_motion_model = 'sins_delta';  % 默认值
+```
+
+三种跨帧模式为：`'none'`（无跨帧因子）、`'sins_delta'`（已有 SINS 三维位置增量）和
+`'imu_preint'`（新的 15 状态 IMU 预积分因子）。预积分模式下，长机仍只有位置状态；每架
+僚机每个关键帧使用 `[位置; 速度; 姿态扰动; 陀螺残余零偏; 加速度计残余零偏]` 共 15 维状态。
+
+只运行“原始 FGO vs IMU 预积分滑窗 + CUSUM”时：
+
+```matlab
+cfg = stage1_cusum_3f3l_config('full');
+cfg.seeds = 23;
+cfg.fault_enable = true;
+cfg.fault_edge = [2, 4];
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 3;
+
+cfg.comparison_mode = 'original_vs_sliding_cusum';
+cfg.sliding_window_motion_model = 'imu_preint';
+cfg.imu_preint_window_length = 3;
+cfg.plot_component_comparison = true;
+report = run_stage1_cusum_comparison(cfg);
+```
+
+若要一次比较“原始、SINS 位置增量滑窗、IMU 预积分滑窗”三种方法，运行：
+
+```matlab
+cfg = stage1_cusum_3f3l_config('full');
+cfg.seeds = 23;
+cfg.fault_enable = true;
+cfg.fault_edge = [2, 4];
+cfg.fault_start = 100;
+cfg.fault_end = 150;
+cfg.fault_bias = 3;
+cfg.imu_preint_window_length = 3;
+cfg.plot_component_comparison = true;
+report = run_stage1_imu_preintegration_comparison(cfg);
+```
+
+该入口会验证两次运行中的原始 Equal-FGO 基线完全一致，再输出三种方法的三架僚机 RMSE、
+预积分样本数、预积分时长和高斯—牛顿收敛信息。首次运行建议先执行：
+
+```matlab
+test_imu_preintegration_zero_motion
+test_imu_preintegration_constant_acceleration
+test_imu_preintegration_constant_rotation
+test_imu_preintegration_partition_consistency
+test_imu_preintegration_jacobian
+test_stage1_3f3l_imu_preint_smoke
+```
+
+完整实现、实际测试和已知限制见 `IMU预积分_实施与验证报告.md`。

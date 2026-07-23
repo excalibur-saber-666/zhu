@@ -35,6 +35,37 @@ cfg.sliding_window_motion_std = [2; 2; 4];
 % This is an empirical SINS relative-position constraint, not a full IMU
 % preintegration factor. Keep the switch explicit for ablation studies.
 cfg.sliding_window_motion_enable = true;
+% Cross-frame model: 'none', 'sins_delta' (the established position-only
+% path), or 'imu_preint'.  The default deliberately preserves sins_delta.
+cfg.sliding_window_motion_model = 'sins_delta';
+cfg.imu_preint_window_length = 3;
+cfg.imu_preint_use_bias_states = true;
+cfg.imu_preint_use_covariance_propagation = true;
+cfg.imu_preint_repropagate_enable = true;
+cfg.imu_preint_gyro_bias_repropagate_threshold = 5e-5;
+cfg.imu_preint_acc_bias_repropagate_threshold = 5e-3;
+% Values are SI continuous-noise densities mapped from imu_err_random.m:
+% gyro white noise is 10 deg/h per dt sample; accelerometer Markov noise has
+% stationary sigma 0.001 g and time constant 1800 s.
+cfg.imu_preint_gyro_noise_std = 10 * pi / (3600 * 180) / sqrt(cfg.dt);
+cfg.imu_preint_acc_noise_std = 1e-3 * 9.7803698 / sqrt(cfg.dt);
+cfg.imu_preint_gyro_bias_rw_std = sqrt(2 / 3600) * 10 * pi / (3600 * 180);
+cfg.imu_preint_acc_bias_rw_std = sqrt(2 / 1800) * 1e-3 * 9.7803698;
+cfg.imu_preint_gn_max_iterations = 30;
+cfg.imu_preint_gn_step_tolerance = 1e-5;
+cfg.imu_preint_numeric_jacobian_enable = true;
+cfg.imu_preint_position_eps = 1e-5;
+cfg.imu_preint_velocity_eps = 1e-5;
+cfg.imu_preint_rotation_eps = 1e-7;
+cfg.imu_preint_gyro_bias_eps = 1e-8;
+cfg.imu_preint_acc_bias_eps = 1e-6;
+% Follower priors for the new 15-state graph.  Position units are m,
+% velocity m/s, rotation rad, gyro bias rad/s, and accel bias m/s^2.
+cfg.imu_preint_position_prior_std = [10; 10; 20];
+cfg.imu_preint_velocity_prior_std = [5; 5; 8];
+cfg.imu_preint_rotation_prior_std = [5; 5; 10] * pi / 180;
+cfg.imu_preint_gyro_bias_prior_std = 10 * 10 * pi / (3600 * 180) * ones(3, 1);
+cfg.imu_preint_acc_bias_prior_std = 5 * 1e-3 * 9.7803698 * ones(3, 1);
 % Optional singular-value diagnostics for the final linearized graph.
 cfg.graph_condition_diagnostics = false;
 % Once the online CUSUM alarm is active, do not admit that range factor into
