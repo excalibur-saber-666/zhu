@@ -362,13 +362,14 @@ for step = 1:cache.step_count
 
         admitted_edge_mask = true(numel(edges), 1);
         current_entry = local_empty_window_entry(low_num, cfg.uav_num);
+        imu_state_diagnostics = local_empty_imu_state_diagnostics(low_num);
         graph_solve_timer = tic;
         if strcmp(local_graph_mode(cfg), 'sliding_window')
             % The CUSUM decision is made once when the range arrives.  Its
             % resulting weight travels with that range factor while the key
             % frame remains inside the window; it is never recomputed from
             % hindsight data.
-            current_entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, ...
+            current_entry = local_make_window_entry(current_time, graph_positions_prior, edges, weights, detail, ...
                 posiN_w_all, veloN_all, attiN_all, imu_interval_buffer, posi_ini, ...
                 last_sins_after_graph, has_last_sins_after_graph, cfg);
             admitted_edge_mask = current_entry.admitted_edge_mask;
@@ -378,11 +379,13 @@ for step = 1:cache.step_count
                 window_history(1) = [];
             end
             if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
-                [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window_imu_preint( ...
+                [posi_w_graph, cov_graph, graph_solver, imu_state_diagnostics] = local_solve_sliding_window_imu_preint( ...
                     window_history, cfg, low_num);
+                window_history = local_store_imu_window_states(window_history, imu_state_diagnostics);
             else
                 [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window( ...
                     window_history, cfg, low_num);
+                imu_state_diagnostics = local_empty_imu_state_diagnostics(low_num);
             end
             if imu_preint_active
                 imu_interval_buffer = local_empty_imu_interval_buffer(low_num);
@@ -451,6 +454,11 @@ for step = 1:cache.step_count
         history(graph_index).imu_preintegration_seconds = current_entry.preintegration_seconds;
         history(graph_index).imu_sample_counts = current_entry.imu_sample_counts;
         history(graph_index).imu_delta_t = current_entry.imu_delta_t;
+        history(graph_index).imu_state_diagnostics = imu_state_diagnostics;
+        history(graph_index).imu_full_state_prior_count = imu_state_diagnostics.full_state_prior_count;
+        history(graph_index).imu_position_prior_count = imu_state_diagnostics.position_prior_count;
+        history(graph_index).imu_repropagation_count = imu_state_diagnostics.repropagation_count;
+        history(graph_index).imu_repropagation_seconds = imu_state_diagnostics.repropagation_seconds;
     end
 
     for vehicle = 1:low_num
@@ -648,6 +656,7 @@ end
 end
 
 function entry = local_empty_window_entry(low_num, node_count)
+entry.time = NaN;
 entry.node_priors = zeros(3, node_count);
 entry.follower_velocity_prior = zeros(3, low_num);
 entry.follower_rotation_prior = repmat(eye(3), 1, 1, low_num);
@@ -663,13 +672,16 @@ entry.range_weights = zeros(0, 1);
 entry.admitted_edge_mask = false(0, 1);
 entry.motion_delta = zeros(3, low_num);
 entry.has_motion = false;
+entry.has_optimized_state = false;
+entry.optimized_follower_states = cell(1, low_num);
 end
 
-function entry = local_make_window_entry(graph_positions_prior, edges, weights, detail, posiN_w_all, ...
+function entry = local_make_window_entry(current_time, graph_positions_prior, edges, weights, detail, posiN_w_all, ...
         veloN_all, attiN_all, imu_interval_buffer, posi_ini, last_sins_after_graph, ...
         has_last_sins_after_graph, cfg)
 low_num = cfg.uav_num - cfg.high_num;
 entry = local_empty_window_entry(low_num, cfg.uav_num);
+entry.time = current_time;
 % Sliding-window nodes are ordered [leaders, followers], matching the
 % original centralized factor graph.  CUSUM edge IDs remain in their
 % established global order [followers, leaders] and are converted below.
@@ -832,29 +844,59 @@ for vehicle = 1:low_num
 end
 end
 
-function [follower_positions, follower_std, graph] = local_solve_sliding_window_imu_preint(window_history, cfg, low_num)
+function [follower_positions, follower_std, graph, state_diagnostics] = local_solve_sliding_window_imu_preint(window_history, cfg, low_num)
 frame_count = numel(window_history);
 graph = factor_graph_sliding_window_imu_preint(frame_count, cfg.uav_num, cfg.high_num, cfg);
+prior_mode = local_imu_preint_prior_mode(cfg);
+feedback_mode = local_imu_preint_feedback_mode(cfg);
 prior_std = struct('position', cfg.imu_preint_position_prior_std, ...
     'velocity', cfg.imu_preint_velocity_prior_std, ...
     'rotation', cfg.imu_preint_rotation_prior_std, ...
     'gyro_bias', cfg.imu_preint_gyro_bias_prior_std, ...
     'acc_bias', cfg.imu_preint_acc_bias_prior_std);
+state_diagnostics = local_empty_imu_state_diagnostics(low_num);
+state_diagnostics.frame_times = reshape([window_history.time], [], 1);
+state_diagnostics.initial_states = cell(frame_count, low_num);
+state_diagnostics.optimized_states = cell(frame_count, low_num);
+state_diagnostics.initial_from_carryover = false(frame_count, low_num);
 for frame_index = 1:frame_count
     entry = window_history(frame_index);
-    graph.set_frame_initial(frame_index, entry.node_priors, entry.follower_velocity_prior, ...
-        entry.follower_rotation_prior, entry.follower_gyro_bias_prior, entry.follower_acc_bias_prior);
+    initial_velocity = zeros(3, low_num);
+    initial_rotation = repmat(eye(3), 1, 1, low_num);
+    initial_bg = zeros(3, low_num);
+    initial_ba = zeros(3, low_num);
+    initial_node_positions = entry.node_priors;
+    for follower_index = 1:low_num
+        node_index = cfg.high_num + follower_index;
+        [initial_state, from_carryover] = local_initial_imu_follower_state(entry, node_index, ...
+            follower_index, feedback_mode);
+        initial_node_positions(:, node_index) = initial_state.p;
+        initial_velocity(:, follower_index) = initial_state.v;
+        initial_rotation(:, :, follower_index) = initial_state.R;
+        initial_bg(:, follower_index) = initial_state.bg;
+        initial_ba(:, follower_index) = initial_state.ba;
+        state_diagnostics.initial_states{frame_index, follower_index} = initial_state;
+        state_diagnostics.initial_from_carryover(frame_index, follower_index) = from_carryover;
+    end
+    graph.set_frame_initial(frame_index, initial_node_positions, initial_velocity, initial_rotation, initial_bg, initial_ba);
     for leader_index = 1:cfg.high_num
         graph.add_leader_prior(frame_index, leader_index, entry.node_priors(:, leader_index), [0.2; 0.2; 0.5]);
     end
     for follower_index = 1:low_num
         node_index = cfg.high_num + follower_index;
-        state = struct('p', entry.node_priors(:, node_index), ...
-            'v', entry.follower_velocity_prior(:, follower_index), ...
-            'R', entry.follower_rotation_prior(:, :, follower_index), ...
-            'bg', entry.follower_gyro_bias_prior(:, follower_index), ...
-            'ba', entry.follower_acc_bias_prior(:, follower_index));
-        graph.add_follower_prior(frame_index, follower_index, state, prior_std);
+        prior_state = state_diagnostics.initial_states{frame_index, follower_index};
+        % GPS remains a direct position observation at every frame.  In the
+        % fixed mode, only the first active frame receives the SINS-derived
+        % velocity, attitude and residual-bias prior; later frames are linked
+        % by the IMU factor instead of receiving the same IMU information twice.
+        prior_state.p = entry.node_priors(:, node_index);
+        if strcmp(prior_mode, 'all_frames_full_legacy') || frame_index == 1
+            graph.add_follower_prior(frame_index, follower_index, prior_state, prior_std);
+            state_diagnostics.full_state_prior_count = state_diagnostics.full_state_prior_count + 1;
+        else
+            graph.add_follower_position_prior(frame_index, follower_index, prior_state.p, prior_std.position);
+            state_diagnostics.position_prior_count = state_diagnostics.position_prior_count + 1;
+        end
     end
     for range_index = 1:numel(entry.range_measurements)
         graph.add_range(frame_index, entry.range_nodes(1, range_index), ...
@@ -870,6 +912,9 @@ for frame_index = 1:frame_count
 end
 graph.Gauss_Newton();
 graph.covariance();
+state_diagnostics.repropagation_count = graph.repropagation_count;
+state_diagnostics.repropagation_seconds = graph.repropagation_seconds;
+state_diagnostics.repropagation_per_factor = graph.repropagation_per_factor;
 follower_positions = zeros(3, low_num);
 follower_std = zeros(3, low_num);
 for vehicle = 1:low_num
@@ -878,6 +923,46 @@ for vehicle = 1:low_num
     position_covariance = graph.get_position_covariance(frame_count, node_index);
     follower_std(:, vehicle) = sqrt(max(0, diag(position_covariance)));
 end
+for frame_index = 1:frame_count
+    for follower_index = 1:low_num
+        state_diagnostics.optimized_states{frame_index, follower_index} = ...
+            graph.get_follower_state(frame_index, follower_index);
+    end
+end
+end
+
+function [state, from_carryover] = local_initial_imu_follower_state(entry, node_index, follower_index, feedback_mode)
+state = struct('p', entry.node_priors(:, node_index), ...
+    'v', entry.follower_velocity_prior(:, follower_index), ...
+    'R', entry.follower_rotation_prior(:, :, follower_index), ...
+    'bg', entry.follower_gyro_bias_prior(:, follower_index), ...
+    'ba', entry.follower_acc_bias_prior(:, follower_index));
+from_carryover = false;
+if strcmp(feedback_mode, 'state_carryover') && entry.has_optimized_state && ...
+        numel(entry.optimized_follower_states) >= follower_index && ...
+        ~isempty(entry.optimized_follower_states{follower_index})
+    state = entry.optimized_follower_states{follower_index};
+    from_carryover = true;
+end
+end
+
+function window_history = local_store_imu_window_states(window_history, state_diagnostics)
+for frame_index = 1:numel(window_history)
+    window_history(frame_index).optimized_follower_states = state_diagnostics.optimized_states(frame_index, :);
+    window_history(frame_index).has_optimized_state = true;
+end
+end
+
+function diagnostics = local_empty_imu_state_diagnostics(low_num)
+diagnostics.frame_times = zeros(0, 1);
+diagnostics.initial_states = cell(0, low_num);
+diagnostics.optimized_states = cell(0, low_num);
+diagnostics.initial_from_carryover = false(0, low_num);
+diagnostics.full_state_prior_count = 0;
+diagnostics.position_prior_count = 0;
+diagnostics.repropagation_count = 0;
+diagnostics.repropagation_seconds = 0;
+diagnostics.repropagation_per_factor = zeros(0, 1);
 end
 
 function covariances = local_extract_current_follower_covariances(graph_solver, low_num, cfg)
@@ -907,11 +992,15 @@ function diagnostics = local_imu_preintegration_diagnostics(history)
 seconds = [history.imu_preintegration_seconds]';
 sample_counts = vertcat(history.imu_sample_counts);
 delta_t = vertcat(history.imu_delta_t);
+repropagation_counts = [history.imu_repropagation_count]';
+repropagation_seconds = [history.imu_repropagation_seconds]';
 diagnostics.total_seconds = sum(seconds(isfinite(seconds)));
 diagnostics.mean_seconds_per_graph = mean(seconds(isfinite(seconds)));
 diagnostics.mean_sample_count = mean(sample_counts(sample_counts > 0));
 diagnostics.mean_delta_t = mean(delta_t(delta_t > 0));
 diagnostics.max_sample_count = max([0; sample_counts(:)]);
+diagnostics.repropagation_count = sum(repropagation_counts(isfinite(repropagation_counts)));
+diagnostics.repropagation_seconds = sum(repropagation_seconds(isfinite(repropagation_seconds)));
 end
 
 function diagnostics = local_empty_linear_system_diagnostics()
@@ -968,6 +1057,11 @@ history.gn_converged = false;
 history.imu_preintegration_seconds = 0;
 history.imu_sample_counts = zeros(0, 1);
 history.imu_delta_t = zeros(0, 1);
+history.imu_state_diagnostics = local_empty_imu_state_diagnostics(0);
+history.imu_full_state_prior_count = 0;
+history.imu_position_prior_count = 0;
+history.imu_repropagation_count = 0;
+history.imu_repropagation_seconds = 0;
 end
 
 function metrics = local_metrics(result, cfg)
@@ -1246,6 +1340,27 @@ if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
     length_value = cfg.imu_preint_window_length;
 else
     length_value = cfg.sliding_window_length;
+end
+end
+
+function mode = local_imu_preint_prior_mode(cfg)
+mode = lower(char(cfg.imu_preint_prior_mode));
+if ~any(strcmp(mode, {'first_frame_full', 'all_frames_full_legacy'}))
+    error('run_stage1_cusum_comparison:InvalidImuPreintPriorMode', ...
+        'imu_preint_prior_mode must be ''first_frame_full'' or ''all_frames_full_legacy''.');
+end
+end
+
+function mode = local_imu_preint_feedback_mode(cfg)
+mode = lower(char(cfg.imu_preint_feedback_mode));
+if ~any(strcmp(mode, {'diagnostic', 'state_carryover', 'closed_loop'}))
+    error('run_stage1_cusum_comparison:InvalidImuPreintFeedbackMode', ...
+        'imu_preint_feedback_mode must be ''diagnostic'', ''state_carryover'', or ''closed_loop''.');
+end
+if strcmp(mode, 'closed_loop')
+    error('run_stage1_cusum_comparison:ClosedLoopNotSupported', ...
+        ['closed_loop is intentionally disabled: directly replacing SINS/KF velocity, attitude, and bias ' ...
+        'would double-count an unmodelled cross-covariance. Use state_carryover or diagnostic.']);
 end
 end
 
@@ -1714,8 +1829,9 @@ if ~isscalar(cfg.imu_preint_window_length) || cfg.imu_preint_window_length < 1 |
 end
 positive_scalar_fields = {'imu_preint_gyro_bias_repropagate_threshold', ...
     'imu_preint_acc_bias_repropagate_threshold', 'imu_preint_gyro_noise_std', ...
-    'imu_preint_acc_noise_std', 'imu_preint_gyro_bias_rw_std', ...
+    'imu_preint_gyro_bias_rw_std', ...
     'imu_preint_acc_bias_rw_std', 'imu_preint_gn_step_tolerance', ...
+    'imu_preint_covariance_regularization', ...
     'imu_preint_position_eps', 'imu_preint_velocity_eps', 'imu_preint_rotation_eps', ...
     'imu_preint_gyro_bias_eps', 'imu_preint_acc_bias_eps'};
 for field_index = 1:numel(positive_scalar_fields)
@@ -1724,6 +1840,11 @@ for field_index = 1:numel(positive_scalar_fields)
         error('run_stage1_cusum_comparison:InvalidImuPreintParameter', ...
             '%s must be a positive finite scalar.', positive_scalar_fields{field_index});
     end
+end
+if ~isscalar(cfg.imu_preint_acc_noise_std) || ~isreal(cfg.imu_preint_acc_noise_std) || ...
+        ~isfinite(cfg.imu_preint_acc_noise_std) || cfg.imu_preint_acc_noise_std < 0
+    error('run_stage1_cusum_comparison:InvalidImuPreintParameter', ...
+        'imu_preint_acc_noise_std must be a non-negative finite scalar.');
 end
 if ~isscalar(cfg.imu_preint_gn_max_iterations) || cfg.imu_preint_gn_max_iterations < 1 || ...
         cfg.imu_preint_gn_max_iterations ~= floor(cfg.imu_preint_gn_max_iterations)
@@ -1753,4 +1874,6 @@ if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices) 
 end
 local_comparison_mode(cfg);
 local_graph_mode(cfg);
+local_imu_preint_prior_mode(cfg);
+local_imu_preint_feedback_mode(cfg);
 end

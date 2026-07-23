@@ -12,6 +12,7 @@ classdef factor_graph_sliding_window_imu_preint < handle
         parameters = []
         follower_rotations = []
         leader_priors = struct('frame', {}, 'leader', {}, 'measurement', {}, 'std', {})
+        follower_position_priors = struct('frame', {}, 'follower', {}, 'measurement', {}, 'std', {})
         follower_priors = struct('frame', {}, 'follower', {}, 'state', {}, 'std', {})
         range_factors = struct('frame', {}, 'first_node', {}, 'second_node', {}, ...
             'measurement', {}, 'std', {}, 'weight', {})
@@ -26,9 +27,14 @@ classdef factor_graph_sliding_window_imu_preint < handle
         A = []
         d = []
         P_all = []
+        covariance_mode = 'current_frame_only'
+        current_follower_position_covariances = []
         iteration_count = 0
         final_step_norm = NaN
         converged = false
+        repropagation_count = 0
+        repropagation_seconds = 0
+        repropagation_per_factor = []
     end
 
     methods
@@ -54,13 +60,20 @@ classdef factor_graph_sliding_window_imu_preint < handle
             obj.acc_bias_repropagate_threshold = cfg.imu_preint_acc_bias_repropagate_threshold;
             obj.gn_max_iterations = cfg.imu_preint_gn_max_iterations;
             obj.gn_step_tolerance = cfg.imu_preint_gn_step_tolerance;
+            obj.covariance_mode = lower(char(cfg.imu_preint_covariance_mode));
+            if ~any(strcmp(obj.covariance_mode, {'full_pinv_legacy', 'current_frame_only'}))
+                error('factor_graph_sliding_window_imu_preint:InvalidCovarianceMode', ...
+                    'imu_preint_covariance_mode must be ''full_pinv_legacy'' or ''current_frame_only''.');
+            end
+            obj.repropagation_per_factor = zeros(0, 1);
         end
 
         function set_frame_initial(obj, frame, node_positions, follower_velocity, follower_rotation, follower_bg, follower_ba)
             obj.validate_frame(frame);
             if ~isequal(size(node_positions), [3, obj.node_count]) || ...
                     ~isequal(size(follower_velocity), [3, obj.follower_count]) || ...
-                    ~isequal(size(follower_rotation), [3, 3, obj.follower_count]) || ...
+                    size(follower_rotation, 1) ~= 3 || size(follower_rotation, 2) ~= 3 || ...
+                    size(follower_rotation, 3) ~= obj.follower_count || ...
                     ~isequal(size(follower_bg), [3, obj.follower_count]) || ...
                     ~isequal(size(follower_ba), [3, obj.follower_count]) || ...
                     any(~isfinite(node_positions(:))) || any(~isfinite(follower_velocity(:))) || ...
@@ -97,6 +110,13 @@ classdef factor_graph_sliding_window_imu_preint < handle
                 'state', state, 'std', std_value);
         end
 
+        function add_follower_position_prior(obj, frame, follower, measurement, std_value)
+            obj.validate_frame(frame); obj.validate_follower(follower);
+            obj.validate_vector(measurement, 'measurement'); obj.validate_positive_vector(std_value, 'std_value');
+            obj.follower_position_priors(end + 1) = struct('frame', frame, 'follower', follower, ...
+                'measurement', measurement(:), 'std', std_value(:));
+        end
+
         function add_range(obj, frame, first_node, second_node, measurement, std_value, weight)
             obj.validate_frame(frame); obj.validate_node(first_node); obj.validate_node(second_node);
             if first_node == second_node || ~isscalar(measurement) || ~isfinite(measurement) || measurement <= 0 || ...
@@ -117,10 +137,13 @@ classdef factor_graph_sliding_window_imu_preint < handle
             end
             obj.imu_factors(end + 1) = struct('previous_frame', previous_frame, ...
                 'current_frame', current_frame, 'follower', follower, 'preint', preint);
+            obj.repropagation_per_factor(end + 1, 1) = 0;
         end
 
         function Gauss_Newton(obj)
             obj.iteration_count = 0; obj.final_step_norm = NaN; obj.converged = false;
+            obj.repropagation_count = 0; obj.repropagation_seconds = 0;
+            obj.repropagation_per_factor(:) = 0;
             for iteration = 1:obj.gn_max_iterations
                 [obj.A, obj.d] = obj.linearized_system();
                 [Q, R] = qr(obj.A, 0);
@@ -147,9 +170,26 @@ classdef factor_graph_sliding_window_imu_preint < handle
             if isempty(obj.A)
                 [obj.A, obj.d] = obj.linearized_system();
             end
-            information = (obj.A' * obj.A + (obj.A' * obj.A)') / 2;
-            obj.P_all = pinv(information);
-            obj.P_all = (obj.P_all + obj.P_all') / 2;
+            information = obj.A' * obj.A;
+            information = (information + information') / 2;
+            obj.P_all = [];
+            obj.current_follower_position_covariances = [];
+            switch obj.covariance_mode
+                case 'full_pinv_legacy'
+                    obj.P_all = pinv(information);
+                    obj.P_all = (obj.P_all + obj.P_all') / 2;
+                case 'current_frame_only'
+                    obj.current_follower_position_covariances = zeros(3, 3, obj.follower_count);
+                    for follower = 1:obj.follower_count
+                        columns = obj.follower_columns(obj.frame_count, follower);
+                        position_columns = columns(1:3);
+                        selector = zeros(size(information, 1), 3);
+                        selector(position_columns, :) = eye(3);
+                        covariance_columns = information \ selector;
+                        block = covariance_columns(position_columns, :);
+                        obj.current_follower_position_covariances(:, :, follower) = (block + block') / 2;
+                    end
+            end
         end
 
         function position = get_position(obj, frame, node)
@@ -158,11 +198,16 @@ classdef factor_graph_sliding_window_imu_preint < handle
         end
 
         function covariance = get_position_covariance(obj, frame, node)
-            if isempty(obj.P_all)
-                error('factor_graph_sliding_window_imu_preint:CovarianceUnavailable', 'Call covariance first.');
+            if ~isempty(obj.P_all)
+                [~, columns] = obj.node_position_and_columns(frame, node);
+                covariance = obj.P_all(columns, columns);
+                return;
             end
-            [~, columns] = obj.node_position_and_columns(frame, node);
-            covariance = obj.P_all(columns, columns);
+            if isempty(obj.current_follower_position_covariances) || frame ~= obj.frame_count || node <= obj.leader_count
+                error('factor_graph_sliding_window_imu_preint:CovarianceUnavailable', ...
+                    'Current-frame follower covariance is unavailable; use full_pinv_legacy for other blocks.');
+            end
+            covariance = obj.current_follower_position_covariances(:, :, node - obj.leader_count);
         end
 
         function state = get_follower_state(obj, frame, follower)
@@ -173,7 +218,8 @@ classdef factor_graph_sliding_window_imu_preint < handle
 
     methods (Access = private)
         function [A, d] = linearized_system(obj)
-            row_count = 3 * numel(obj.leader_priors) + 15 * numel(obj.follower_priors) + ...
+            row_count = 3 * numel(obj.leader_priors) + 3 * numel(obj.follower_position_priors) + ...
+                15 * numel(obj.follower_priors) + ...
                 numel(obj.range_factors) + 15 * numel(obj.imu_factors);
             state_count = numel(obj.parameters);
             if row_count < state_count
@@ -185,6 +231,14 @@ classdef factor_graph_sliding_window_imu_preint < handle
                 factor = obj.leader_priors(index); columns = obj.leader_columns(factor.frame, factor.leader);
                 rows = row + (1:3); sqrt_info = diag(1 ./ factor.std);
                 A(rows, columns) = sqrt_info; d(rows) = sqrt_info * (obj.parameters(columns) - factor.measurement); row = row + 3;
+            end
+            for index = 1:numel(obj.follower_position_priors)
+                factor = obj.follower_position_priors(index);
+                columns = obj.follower_columns(factor.frame, factor.follower); columns = columns(1:3);
+                rows = row + (1:3); sqrt_info = diag(1 ./ factor.std);
+                A(rows, columns) = sqrt_info;
+                d(rows) = sqrt_info * (obj.parameters(columns) - factor.measurement);
+                row = row + 3;
             end
             for index = 1:numel(obj.follower_priors)
                 factor = obj.follower_priors(index); columns = obj.follower_columns(factor.frame, factor.follower);
@@ -200,7 +254,7 @@ classdef factor_graph_sliding_window_imu_preint < handle
                 A(row, first_columns) = scale * jacobian(1, 1:3); A(row, second_columns) = scale * jacobian(1, 4:6); d(row) = scale * residual;
             end
             for index = 1:numel(obj.imu_factors)
-                factor = obj.imu_factors(index); preint = obj.maybe_repropagate(factor);
+                factor = obj.imu_factors(index); preint = obj.maybe_repropagate(index);
                 previous = obj.follower_state(factor.previous_frame, factor.follower);
                 current = obj.follower_state(factor.current_frame, factor.follower);
                 [residual, jacobian_previous, jacobian_current] = imu_preintegration_numeric_jacobian( ...
@@ -212,7 +266,8 @@ classdef factor_graph_sliding_window_imu_preint < handle
             end
         end
 
-        function preint = maybe_repropagate(obj, factor)
+        function preint = maybe_repropagate(obj, index)
+            factor = obj.imu_factors(index);
             preint = factor.preint;
             if ~obj.repropagate_enable
                 return;
@@ -222,8 +277,13 @@ classdef factor_graph_sliding_window_imu_preint < handle
                     norm(previous.ba - preint.bias_acc_ref) <= obj.acc_bias_repropagate_threshold
                 return;
             end
+            repropagation_timer = tic;
             preint = imu_preintegrate_interval(preint.gyro_rad_s, preint.specific_force_mps2, ...
                 preint.dt_samples, previous.bg, previous.ba, preint.noise);
+            obj.imu_factors(index).preint = preint;
+            obj.repropagation_count = obj.repropagation_count + 1;
+            obj.repropagation_per_factor(index) = obj.repropagation_per_factor(index) + 1;
+            obj.repropagation_seconds = obj.repropagation_seconds + toc(repropagation_timer);
         end
 
         function apply_increment(obj, increment)

@@ -68,15 +68,26 @@ for index = 1:numel(dt)
         phi(1:3, 13:15) = -0.5 * rotation * h^2;
         phi(4:6, 7:9) = -rotation * so3_hat(force) * h;
         phi(4:6, 13:15) = -rotation * h;
-        phi(7:9, 10:12) = -eye(3) * h;
-        q = diag([repmat(noise.acc_noise_std^2 * h, 1, 3), ...
-                  repmat(noise.gyro_noise_std^2 * h, 1, 3), ...
+        % The attitude error is a right perturbation in the instantaneous
+        % body frame.  It therefore rotates with Exp(-omega*dt), and its
+        % gyro-bias coupling uses the right Jacobian of the increment.
+        rotation_increment = omega * h;
+        right_jacobian = so3_right_jacobian(rotation_increment);
+        phi(7:9, 7:9) = so3_exp(-rotation_increment);
+        phi(7:9, 10:12) = -right_jacobian * h;
+
+        % Measurement-noise densities are continuous-time values.  Their
+        % discrete sample covariance is density^2 / dt because the gain below
+        % already contains dt.  Bias driving densities instead enter directly
+        % as density^2 * dt because their gain is the identity.
+        q = diag([repmat(noise.acc_noise_std^2 / h, 1, 3), ...
+                  repmat(noise.gyro_noise_std^2 / h, 1, 3), ...
                   repmat(noise.gyro_bias_rw_std^2 * h, 1, 3), ...
                   repmat(noise.acc_bias_rw_std^2 * h, 1, 3)]);
         gain = zeros(15, 12);
         gain(1:3, 1:3) = 0.5 * rotation * h^2;
         gain(4:6, 1:3) = rotation * h;
-        gain(7:9, 4:6) = eye(3) * h;
+        gain(7:9, 4:6) = -right_jacobian * h;
         gain(10:12, 7:9) = eye(3);
         gain(13:15, 10:12) = eye(3);
         result.covariance = phi * result.covariance * phi' + gain * q * gain';
@@ -117,8 +128,10 @@ function local_validate_noise(noise)
 required = {'gyro_noise_std', 'acc_noise_std', 'gyro_bias_rw_std', 'acc_bias_rw_std', 'covariance_regularization'};
 for index = 1:numel(required)
     name = required{index};
-    if ~isfield(noise, name) || ~isscalar(noise.(name)) || ~isfinite(noise.(name)) || noise.(name) <= 0
-        error('imu_preintegrate_interval:InvalidNoise', 'noise.%s must be positive and finite.', name);
+    if ~isfield(noise, name) || ~isscalar(noise.(name)) || ~isfinite(noise.(name)) || noise.(name) < 0 || ...
+            (strcmp(name, 'covariance_regularization') && noise.(name) <= 0)
+        error('imu_preintegrate_interval:InvalidNoise', ...
+            'noise.%s must be finite and non-negative (regularization must be positive).', name);
     end
 end
 end

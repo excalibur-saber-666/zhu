@@ -39,21 +39,33 @@ cfg.sliding_window_motion_enable = true;
 % path), or 'imu_preint'.  The default deliberately preserves sins_delta.
 cfg.sliding_window_motion_model = 'sins_delta';
 cfg.imu_preint_window_length = 3;
-cfg.imu_preint_use_bias_states = true;
-cfg.imu_preint_use_covariance_propagation = true;
+% The IMU-preintegration graph always uses the 15-state residual-bias model
+% and propagated covariance.  The retired boolean switches were misleading
+% because the former implementation ignored false values.
+cfg.imu_preint_prior_mode = 'first_frame_full';
+% 'diagnostic' records graph states only; 'state_carryover' also uses overlap
+% optima as the next window's initial state.  'closed_loop' is intentionally
+% rejected until this project has a covariance-consistent SINS/KF injection.
+cfg.imu_preint_feedback_mode = 'state_carryover';
+cfg.imu_preint_covariance_mode = 'current_frame_only';
 cfg.imu_preint_repropagate_enable = true;
 cfg.imu_preint_gyro_bias_repropagate_threshold = 5e-5;
 cfg.imu_preint_acc_bias_repropagate_threshold = 5e-3;
-% Values are SI continuous-noise densities mapped from imu_err_random.m:
-% gyro white noise is 10 deg/h per dt sample; accelerometer Markov noise has
-% stationary sigma 0.001 g and time constant 1800 s.
+% Values are SI continuous-noise densities mapped from imu_err_random.m.
+% Gyro_wg is independent per-sample white noise.  Acc_r is a first-order
+% Markov bias, not an additional accelerometer-white-noise term, so its white
+% density is zero and its driving density is used only for the residual-bias
+% random walk.  The small covariance regularization is recorded explicitly.
 cfg.imu_preint_gyro_noise_std = 10 * pi / (3600 * 180) / sqrt(cfg.dt);
-cfg.imu_preint_acc_noise_std = 1e-3 * 9.7803698 / sqrt(cfg.dt);
+cfg.imu_preint_acc_noise_std = 0;
 cfg.imu_preint_gyro_bias_rw_std = sqrt(2 / 3600) * 10 * pi / (3600 * 180);
 cfg.imu_preint_acc_bias_rw_std = sqrt(2 / 1800) * 1e-3 * 9.7803698;
+cfg.imu_preint_covariance_regularization = 1e-12;
 cfg.imu_preint_gn_max_iterations = 30;
 cfg.imu_preint_gn_step_tolerance = 1e-5;
-cfg.imu_preint_numeric_jacobian_enable = true;
+% Jacobians are currently finite-difference Jacobians on the right SO(3)
+% tangent.  The retired enable switch was misleading because no analytic path
+% exists yet; tests now compare every column against an independent stencil.
 cfg.imu_preint_position_eps = 1e-5;
 cfg.imu_preint_velocity_eps = 1e-5;
 cfg.imu_preint_rotation_eps = 1e-7;
@@ -64,8 +76,11 @@ cfg.imu_preint_acc_bias_eps = 1e-6;
 cfg.imu_preint_position_prior_std = [10; 10; 20];
 cfg.imu_preint_velocity_prior_std = [5; 5; 8];
 cfg.imu_preint_rotation_prior_std = [5; 5; 10] * pi / 180;
-cfg.imu_preint_gyro_bias_prior_std = 10 * 10 * pi / (3600 * 180) * ones(3, 1);
-cfg.imu_preint_acc_bias_prior_std = 5 * 1e-3 * 9.7803698 * ones(3, 1);
+% These are initial uncertainties of the residual biases: the constant and
+% Markov gyro components are independent in imu_err_random.m, whereas the
+% accelerometer has only its Markov component.
+cfg.imu_preint_gyro_bias_prior_std = sqrt(2) * 10 * pi / (3600 * 180) * ones(3, 1);
+cfg.imu_preint_acc_bias_prior_std = 1e-3 * 9.7803698 * ones(3, 1);
 % Optional singular-value diagnostics for the final linearized graph.
 cfg.graph_condition_diagnostics = false;
 % Once the online CUSUM alarm is active, do not admit that range factor into

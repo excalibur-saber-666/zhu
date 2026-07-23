@@ -4,8 +4,12 @@ if ~isnumeric(rotation) || ~isreal(rotation) || ~isequal(size(rotation), [3, 3])
         any(~isfinite(rotation(:)))
     error('so3_log:InvalidRotation', 'rotation must be a finite real 3-by-3 matrix.');
 end
-[left, ~, right] = svd(rotation);
-rotation = left * diag([1, 1, det(left * right')]) * right';
+orthogonality_error = norm(rotation' * rotation - eye(3), 'fro');
+determinant_error = abs(det(rotation) - 1);
+if orthogonality_error > 1e-10 || determinant_error > 1e-10
+    [left, ~, right] = svd(rotation);
+    rotation = left * diag([1, 1, det(left * right')]) * right';
+end
 % The project already contains trace.m for trajectory generation, so do not
 % call MATLAB's shadowed trace() here.
 cosine = min(1, max(-1, (sum(diag(rotation)) - 1) / 2));

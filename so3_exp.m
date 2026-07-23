@@ -13,10 +13,8 @@ else
     rotation = eye(3) + sin(angle) / angle * cross_matrix + ...
         (1 - cos(angle)) / angle^2 * cross_matrix * cross_matrix;
 end
-rotation = local_project_to_so3(rotation);
-end
-
-function rotation = local_project_to_so3(rotation)
-[left, ~, right] = svd(rotation);
-rotation = left * diag([1, 1, det(left * right')]) * right';
+% Rodrigues' formula already produces an SO(3) matrix to round-off.  Avoid an
+% SVD projection here because this function is called in every numerical
+% Jacobian evaluation; callers that receive externally supplied matrices still
+% validate/project them at their boundary.
 end
