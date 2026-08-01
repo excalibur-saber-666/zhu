@@ -6,5 +6,20 @@
 /VeloData_hybrid*.dat
 /VeloNData_hybrid*.dat
 
-# Temporary render and tool artifacts.
+# MATLAB editor, cache, code-generation, and local experiment output.
+*.asv
+*.m~
+*.mlx~
+*.slxc
+/slprj/
+/codegen/
+/results/
+/figures/
+/logs/
+
+# Local paper drafts, downloaded literature, and simulation artefacts.
 /tmp/
+/li_style_*_results/
+/li_style_dense_trial_results/
+*.docx
+*.pdf

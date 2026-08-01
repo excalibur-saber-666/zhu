@@ -1,104 +1,115 @@
 function report = run_stage1_cusum_comparison(cfg)
-%RUN_STAGE1_CUSUM_COMPARISON Fair Equal-FGO versus CUSUM-FGO comparison.
-%   The two methods consume the same cached IMU, GPS, and range-noise inputs.
-%   Their only algorithmic difference is the range-factor weight.
+%RUN_STAGE1_CUSUM_COMPARISON Run the selected Stage-1 comparison methods.
+%   CFG.METHODS is any non-empty subset of:
+%   EKF, FGO, CUSUM_EKF, and CUSUM_FGO.  Every selected method consumes the
+%   same cached IMU, GPS, and range-noise inputs for a fair comparison.
 
 if nargin < 1 || isempty(cfg)
-    cfg = stage1_cusum_default_config('full');
+    cfg = stage1_cusum_3f3l_config('full');
 else
-    cfg = local_merge_config(stage1_cusum_default_config('full'), cfg);
+    cfg = local_merge_config(stage1_cusum_3f3l_config('full'), cfg);
 end
 local_validate_experiment_config(cfg);
-
-comparison_mode = local_comparison_mode(cfg);
-method_labels = local_method_labels(comparison_mode);
-
-scenario_names = local_scenario_names(cfg);
-scenario_count = numel(scenario_names);
-seed_count = numel(cfg.seeds);
-seed_results = repmat(struct('seed', [], 'equal', [], 'cusum', [], 'original_equal', []), seed_count, 1);
-scenario_results = struct();
-for scenario_index = 1:scenario_count
-    scenario_results.(scenario_names{scenario_index}) = ...
-        repmat(struct('seed', [], 'equal', [], 'cusum', [], 'original_equal', []), seed_count, 1);
+report = local_run_four_method_comparison(cfg);
 end
-total_runs = 2 * scenario_count * seed_count;
+
+function report = local_run_four_method_comparison(cfg)
+% Run all four methods or a requested non-empty subset with shared inputs.
+method_names = cfg.methods;
+method_labels = local_selected_method_labels(method_names);
+scenario_names = local_scenario_names(cfg);
+seed_count = numel(cfg.seeds);
+template = struct('seed', [], 'ekf', [], 'fgo', [], 'cusum_ekf', [], 'cusum_fgo', []);
+seed_results = repmat(template, seed_count, 1);
+scenario_results = struct();
+for scenario_index = 1:numel(scenario_names)
+    scenario_results.(scenario_names{scenario_index}) = repmat(template, seed_count, 1);
+end
+fault_schedules = cell(seed_count, 1);
+
+total_runs = numel(method_names) * numel(scenario_names) * seed_count;
 run_index = 0;
 for seed_index = 1:seed_count
     seed = cfg.seeds(seed_index);
     cache = local_make_input_cache(cfg, seed);
-    for scenario_index = 1:scenario_count
+    fault_schedules{seed_index} = cache.fault_segments;
+    for scenario_index = 1:numel(scenario_names)
         scenario_name = scenario_names{scenario_index};
         scenario_cfg = cfg;
         scenario_cfg.fault_enable = strcmp(scenario_name, 'fault');
-
-        equal_cfg = scenario_cfg;
-        equal_cfg.cusum_apply = false;
-        equal_cfg.graph_mode = 'single_epoch';
-        start_time = tic;
-        equal_result = local_run_cached_simulation(cache, equal_cfg);
-        run_index = run_index + 1;
-        if cfg.verbose
-            local_print_progress(run_index, total_runs, scenario_name, method_labels{1}, seed, toc(start_time));
+        scenario_cfg.resolved_fault_segments = cache.fault_segments;
+        current = template;
+        current.seed = seed;
+        for method_index = 1:numel(method_names)
+            method_name = method_names{method_index};
+            method_cfg = local_four_method_config(scenario_cfg, method_name);
+            start_time = tic;
+            is_equal_weight = ~method_cfg.cusum_apply;
+            current.(method_name) = local_run_cached_simulation(cache, method_cfg, ...
+                is_equal_weight, method_cfg.estimator_mode);
+            run_index = run_index + 1;
+            if cfg.verbose
+                local_print_progress(run_index, total_runs, scenario_name, ...
+                    method_labels{method_index}, seed, toc(start_time));
+            end
         end
-
-        cusum_cfg = scenario_cfg;
-        switch comparison_mode
-            case 'original_vs_sliding_cusum'
-                cusum_cfg.cusum_apply = true;
-                cusum_cfg.graph_mode = 'sliding_window';
-                cusum_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
-            case 'original_vs_sliding_equal'
-                % Regression/ablation path: same sliding-window graph but
-                % strictly equal range weights and no alarm-edge exclusion.
-                cusum_cfg.cusum_apply = false;
-                cusum_cfg.graph_mode = 'sliding_window';
-                cusum_cfg.sliding_window_exclude_alarmed_edges = false;
-                cusum_cfg.cusum_consensus_enable = false;
-            otherwise
-                cusum_cfg.cusum_apply = true;
-                cusum_cfg.graph_mode = 'single_epoch';
-        end
-        start_time = tic;
-        cusum_result = local_run_cached_simulation(cache, cusum_cfg);
-        run_index = run_index + 1;
-        if cfg.verbose
-            local_print_progress(run_index, total_runs, scenario_name, method_labels{2}, seed, toc(start_time));
-        end
-
-        original_equal_result = [];
-        if cfg.enable_original_baseline_regression
-            original_equal_result = local_run_original_equal_cached(cache, scenario_cfg);
-        end
-
-        scenario_results.(scenario_name)(seed_index).seed = seed;
-        scenario_results.(scenario_name)(seed_index).equal = equal_result;
-        scenario_results.(scenario_name)(seed_index).cusum = cusum_result;
-        scenario_results.(scenario_name)(seed_index).original_equal = original_equal_result;
+        scenario_results.(scenario_name)(seed_index) = current;
     end
-
-    % Preserve the original public result layout: with a configured fault,
-    % seed_results is the fault scenario; otherwise it is the healthy one.
-    primary_scenario = scenario_names{end};
-    seed_results(seed_index) = scenario_results.(primary_scenario)(seed_index);
+    seed_results(seed_index) = scenario_results.(scenario_names{end})(seed_index);
 end
 
 report.cfg = cfg;
-report.comparison_mode = comparison_mode;
+report.comparison_mode = 'four_method';
+report.method_names = method_names;
 report.method_labels = method_labels;
 report.seed_results = seed_results;
-report.aggregate = local_aggregate(seed_results);
+report.aggregate = local_aggregate_four_methods(seed_results, method_names);
 report.scenario_results = scenario_results;
+report.fault_schedules = fault_schedules;
 report.scenario_aggregates = struct();
-for scenario_index = 1:scenario_count
-    scenario_name = scenario_names{scenario_index};
-    report.scenario_aggregates.(scenario_name) = local_aggregate(scenario_results.(scenario_name));
+for scenario_index = 1:numel(scenario_names)
+    name = scenario_names{scenario_index};
+    report.scenario_aggregates.(name) = local_aggregate_four_methods( ...
+        scenario_results.(name), method_names);
 end
+report.paired_comparisons = local_four_method_paired_comparisons( ...
+    report.scenario_aggregates, scenario_names);
+report.position_metrics = compute_stage1_position_metrics(report);
+report.fault_segment_metrics = local_fault_segment_position_metrics( ...
+    scenario_results, method_names);
 if cfg.verbose
-    local_print_comparison_tables(report, scenario_names);
+    local_print_four_method_rmse(report, scenario_names);
 end
-if isfield(cfg, 'plot_component_comparison') && cfg.plot_component_comparison
-    local_plot_component_comparison(report, scenario_names);
+end
+
+function method_cfg = local_four_method_config(cfg, method_name)
+method_cfg = cfg;
+switch method_name
+    case 'ekf'
+        method_cfg.estimator_mode = 'ekf';
+        method_cfg.cusum_apply = false;
+        method_cfg.graph_mode = 'single_epoch';
+        method_cfg.sliding_window_exclude_alarmed_edges = false;
+    case 'fgo'
+        method_cfg.estimator_mode = 'fgo';
+        method_cfg.cusum_apply = false;
+        method_cfg.graph_mode = 'single_epoch';
+        method_cfg.sliding_window_exclude_alarmed_edges = false;
+    case 'cusum_ekf'
+        method_cfg.estimator_mode = 'ekf';
+        method_cfg.cusum_apply = true;
+        method_cfg.graph_mode = 'single_epoch';
+        method_cfg.sliding_window_exclude_alarmed_edges = true;
+        method_cfg.sliding_window_alarm_exclusion_mode = 'per_follower_max';
+    case 'cusum_fgo'
+        method_cfg.estimator_mode = 'fgo';
+        method_cfg.cusum_apply = true;
+        method_cfg.graph_mode = 'sliding_window';
+        method_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
+        method_cfg.sliding_window_exclude_alarmed_edges = true;
+    otherwise
+        error('run_stage1_cusum_comparison:InvalidFourMethodName', ...
+            'Unknown four-method comparison member "%s".', method_name);
 end
 end
 
@@ -157,12 +168,10 @@ for step = 1:step_count
         cache.range_standard(:, :, graph_index) = randn(low_num, cfg.uav_num);
     end
 end
+cache.fault_segments = local_resolve_fault_segments(cfg, seed);
 end
 
-function result = local_run_cached_simulation(cache, cfg, is_original_equal_baseline)
-if nargin < 3
-    is_original_equal_baseline = false;
-end
+function result = local_run_cached_simulation(cache, cfg, use_equal_weights, estimator_mode)
 low_num = cfg.uav_num - cfg.high_num;
 if cfg.assert_node_mapping
     for leader = 1:cfg.high_num
@@ -175,9 +184,10 @@ if cfg.assert_node_mapping
     end
 end
 
-posi_e_all = load('posi_e_all.dat');
-posi_n_all = load('posi_n_all.dat');
-posi_u_all = load('posi_u_all.dat');
+data_directory = stage1_project_root();
+posi_e_all = load(fullfile(data_directory, 'posi_e_all.dat'));
+posi_n_all = load(fullfile(data_directory, 'posi_n_all.dat'));
+posi_u_all = load(fullfile(data_directory, 'posi_u_all.dat'));
 posi_ini = [118; 32; 200.0];
 posi_w_all = zeros(3, low_num);
 posi_w_enu_all = zeros(3, low_num);
@@ -239,16 +249,22 @@ end
 sample_count = cache.step_count + 1;
 truth_xyz = zeros(sample_count, 3, low_num);
 navigation_xyz = zeros(sample_count, 3, low_num);
+leader_truth_xyz = zeros(sample_count, 3, cfg.high_num);
 for vehicle = 1:low_num
     truth_xyz(1, :, vehicle) = posi_w_all(:, vehicle)';
     navigation_xyz(1, :, vehicle) = posi_w_all(:, vehicle)';
 end
+for leader = 1:cfg.high_num
+    leader_truth_xyz(1, :, leader) = posi_L_all(:, leader)';
+end
 history = repmat(local_empty_history(), cache.graph_count, 1);
+range_error_history = nan(cache.graph_count, low_num, cfg.uav_num);
 cusum_state = [];
 window_history = repmat(local_empty_window_entry(low_num, cfg.uav_num), 0, 1);
 imu_interval_buffer = local_empty_imu_interval_buffer(low_num);
-imu_preint_active = strcmp(local_graph_mode(cfg), 'sliding_window') && ...
-    strcmp(local_sliding_window_motion_model(cfg), 'imu_preint');
+imu_preint_active = strcmp(estimator_mode, 'fgo') && ...
+    strcmp(local_graph_mode(cfg), 'sliding_window') && ...
+    cfg.imu_preintegration_enable;
 last_sins_after_graph = zeros(3, low_num);
 has_last_sins_after_graph = false;
 graph_index = 0;
@@ -290,15 +306,13 @@ for step = 1:cache.step_count
             gyro_r(:, vehicle) / 0.01745329252 + gyro_wg(:, vehicle) / 0.01745329252;
         Fb_noise = Fb + acc_r(:, vehicle);
         Fb_noise_all(:, vehicle) = Fb_noise;
-        % IMU preintegration caches exactly the bias-corrected samples that
-        % enter SINS.  Wibb_noise is deg/s here; the factor graph uses SI
-        % rad/s.  Graph bias states therefore represent residual bias after
-        % the existing KF/SINS correction rather than a duplicate correction.
         gyro_for_sins_deg_s = Wibb_noise - gyro_modi_all(:, vehicle) / 0.01745329252;
         acc_for_sins_mps2 = Fb_noise - acc_modi_all(:, vehicle);
         if imu_preint_active
-            imu_interval_buffer{vehicle}.gyro_rad_s(:, end + 1) = gyro_for_sins_deg_s * pi / 180;
-            imu_interval_buffer{vehicle}.specific_force_mps2(:, end + 1) = acc_for_sins_mps2;
+            imu_interval_buffer{vehicle}.gyro_rad_s(:, end + 1) = ...
+                gyro_for_sins_deg_s * pi / 180;
+            imu_interval_buffer{vehicle}.specific_force_mps2(:, end + 1) = ...
+                acc_for_sins_mps2;
             imu_interval_buffer{vehicle}.dt(end + 1) = cfg.dt;
             imu_interval_buffer{vehicle}.time(end + 1) = current_time;
         end
@@ -314,6 +328,14 @@ for step = 1:cache.step_count
         graph_index = graph_index + 1;
         [posiG_w_all, posiG_L] = local_cached_gps_measurements( ...
             posi_w_enu_all, posi_L_enu_all, cache, graph_index);
+        % The preceding key frame has already injected its estimated error
+        % into the SINS nominal state.  Start this error-state propagation
+        % from zero so that position, velocity and attitude corrections are
+        % not applied a second time at the next graph epoch.  The covariance
+        % and the IMU bias corrections kept by the SINS loop are retained.
+        for vehicle = 1:low_num
+            Xc_all{vehicle} = zeros(18, 1);
+        end
         for vehicle = 1:low_num
             [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = kalm_factor_time_update( ...
                 current_time, cfg.graph_interval, Fb_noise_all(:, vehicle), attiN_all(:, vehicle), ...
@@ -321,11 +343,55 @@ for step = 1:cache.step_count
                 PK_all{vehicle}, Xerr_all{vehicle});
         end
 
+        % Form the time-update snapshot.  FGO retains this prediction for
+        % its online range detector; EKF replaces it below with the
+        % GPS-corrected nominal state before assimilating ranges.
+        node_positions_prior = zeros(3, cfg.uav_num);
+        node_covariances_prior = zeros(3, 3, cfg.uav_num);
+        for vehicle = 1:low_num
+            node_positions_prior(:, vehicle) = posical_xyz( ...
+                posiN_w_all(:, vehicle), posi_ini);
+            node_covariances_prior(:, :, vehicle) = local_kf_position_covariance_enu( ...
+                PK_all{vehicle}, posiN_w_all(:, vehicle));
+        end
+        for vehicle = (low_num + 1):cfg.uav_num
+            node_positions_prior(:, vehicle) = posical_xyz( ...
+                posiG_L(:, vehicle - low_num), posi_ini);
+            node_covariances_prior(:, :, vehicle) = diag([0.2, 0.2, 0.5].^2);
+        end
+
+        if strcmp(estimator_mode, 'ekf')
+            % Inject the GPS update before processing cooperative ranges.
+            % The range Jacobian is therefore linearized around the same
+            % corrected nominal state for every follower, which avoids
+            % mixing an uncorrected self state with corrected neighbours.
+            for vehicle = 1:low_num
+                [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = ...
+                    kalm_factor_measure_update(current_time, posiN_w_all(:, vehicle), ...
+                    posiG_w_all(:, vehicle), [10; 10; 20], Xc_all{vehicle}, ...
+                    PK_all{vehicle}, Xerr_all{vehicle}, 1);
+                [attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle)] = ...
+                    kalm_modi(attiN_all(:, vehicle), veloN_all(:, vehicle), ...
+                    posiN_w_all(:, vehicle), Xc_all{vehicle});
+                gyro_modi_all(:, vehicle) = Xc_all{vehicle}(10:12) + ...
+                    Xc_all{vehicle}(13:15);
+                acc_modi_all(:, vehicle) = Xc_all{vehicle}(16:18);
+                Xc_all{vehicle} = zeros(18, 1);
+                node_positions_prior(:, vehicle) = posical_xyz( ...
+                    posiN_w_all(:, vehicle), posi_ini);
+                node_covariances_prior(:, :, vehicle) = ...
+                    local_kf_position_covariance_enu(PK_all{vehicle}, ...
+                    posiN_w_all(:, vehicle));
+            end
+        end
+
         [posi_w_all, posi_L_all, dis_true] = distance_cal( ...
             posi_w_enu_all, posi_L_enu_all, posi_ini, cfg.uav_num, cfg.high_num);
         [dis_measure, uav_link_num] = local_cached_pseudorange( ...
             dis_true, cache.range_standard(:, :, graph_index), cfg);
         dis_measure = local_inject_fault(dis_measure, current_time, cfg);
+        range_error_history(graph_index, :, :) = reshape( ...
+            dis_measure - dis_true, [1, low_num, cfg.uav_num]);
 
         posi_w_graph = zeros(3, low_num);
         posi_L_graph = zeros(3, cfg.high_num);
@@ -335,24 +401,22 @@ for step = 1:cache.step_count
         for vehicle = 1:cfg.high_num
             posi_L_graph(:, vehicle) = posical_xyz(posiG_L(:, vehicle), posi_ini);
         end
-        % CUSUM uses the online KF/SINS prediction after its time update and
-        % before this epoch's ranges are inserted into the factor graph.
-        % Range factors themselves retain the original GPS graph priors.
+        % FGO uses GPS position priors in its graph.  EKF uses the
+        % GPS-corrected SINS snapshot above as its range-update nominal state.
         graph_positions_prior = [posi_w_graph, posi_L_graph];
-        node_positions_prior = zeros(3, cfg.uav_num);
-        node_covariances_prior = zeros(3, 3, cfg.uav_num);
-        for vehicle = 1:low_num
-            node_positions_prior(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
-            node_covariances_prior(:, :, vehicle) = local_kf_position_covariance_enu( ...
-                PK_all{vehicle}, posiN_w_all(:, vehicle));
-        end
-        for vehicle = (low_num + 1):cfg.uav_num
-            node_positions_prior(:, vehicle) = posi_L_graph(:, vehicle - low_num);
-            node_covariances_prior(:, :, vehicle) = diag([0.2, 0.2, 0.5].^2);
-        end
+        range_update_positions_prior = node_positions_prior;
+        range_update_covariances_prior = node_covariances_prior;
 
         edges = local_build_active_edges(dis_measure, uav_link_num, cfg);
-        if is_original_equal_baseline
+        use_range_predictor_cusum = strcmp(estimator_mode, 'ekf') || ...
+            (strcmp(estimator_mode, 'fgo') && ...
+            strcmpi(cfg.fgo_cusum_detector_mode, 'range_predictor'));
+        cusum_detector_cfg = local_cusum_detector_config(cfg, estimator_mode, ...
+            use_range_predictor_cusum);
+        if cfg.cusum_apply && use_range_predictor_cusum
+            [weights, detail, cusum_state] = compute_ekf_cusum_range_weights( ...
+                edges, cusum_detector_cfg, cusum_state, current_time);
+        elseif use_equal_weights
             weights = ones(numel(edges), 1);
             detail = local_equal_weight_detail(edges);
         else
@@ -360,11 +424,41 @@ for step = 1:cache.step_count
                 edges, node_positions_prior, node_covariances_prior, cfg, cusum_state, current_time);
         end
 
-        admitted_edge_mask = true(numel(edges), 1);
+        admitted_edge_mask = local_window_admission_mask(edges, detail, cfg);
         current_entry = local_empty_window_entry(low_num, cfg.uav_num);
         imu_state_diagnostics = local_empty_imu_state_diagnostics(low_num);
         graph_solve_timer = tic;
-        if strcmp(local_graph_mode(cfg), 'sliding_window')
+        graph_solver = [];
+        graph_linear_diagnostics = local_empty_linear_system_diagnostics();
+        if strcmp(estimator_mode, 'ekf')
+            % Freeze every node before any follower update.  This makes the
+            % batch EKF update independent of follower and edge traversal
+            % order while carrying neighbour uncertainty into R_eff.
+            admitted_edges = edges(admitted_edge_mask);
+            admitted_weights = weights(admitted_edge_mask);
+            [admitted_edges, admitted_weights] = ...
+                local_ekf_alarm_surrogate_edges(admitted_edges, ...
+                admitted_weights, edges, detail, admitted_edge_mask, cfg);
+            [admitted_edges, admitted_weights] = local_ekf_range_edges( ...
+                admitted_edges, admitted_weights, cfg);
+            for vehicle = 1:low_num
+                % All node means and covariances are frozen after the GPS
+                % update.  This makes the follower updates order-independent
+                % and keeps the range residual consistent with its Jacobian.
+                follower_update_positions = range_update_positions_prior;
+                [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = ...
+                    cooperative_range_ekf_update(posiN_w_all(:, vehicle), ...
+                    Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}, vehicle, ...
+                    admitted_edges, follower_update_positions, ...
+                    range_update_covariances_prior, cfg, admitted_weights);
+                [attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle)] = ...
+                    kalm_modi(attiN_all(:, vehicle), veloN_all(:, vehicle), ...
+                    posiN_w_all(:, vehicle), Xc_all{vehicle});
+                gyro_modi_all(:, vehicle) = Xc_all{vehicle}(10:12) + Xc_all{vehicle}(13:15);
+                acc_modi_all(:, vehicle) = Xc_all{vehicle}(16:18);
+                Xc_all{vehicle} = zeros(18, 1);
+            end
+        elseif strcmp(local_graph_mode(cfg), 'sliding_window')
             % The CUSUM decision is made once when the range arrives.  Its
             % resulting weight travels with that range factor while the key
             % frame remains inside the window; it is never recomputed from
@@ -374,21 +468,23 @@ for step = 1:cache.step_count
                 last_sins_after_graph, has_last_sins_after_graph, cfg);
             admitted_edge_mask = current_entry.admitted_edge_mask;
             window_history(end + 1, 1) = current_entry;
-            window_limit = local_active_window_length(cfg);
+            if imu_preint_active
+                window_limit = cfg.imu_preint_window_length;
+            else
+                window_limit = cfg.sliding_window_length;
+            end
             if numel(window_history) > window_limit
                 window_history(1) = [];
             end
-            if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
-                [posi_w_graph, cov_graph, graph_solver, imu_state_diagnostics] = local_solve_sliding_window_imu_preint( ...
-                    window_history, cfg, low_num);
-                window_history = local_store_imu_window_states(window_history, imu_state_diagnostics);
-            else
-                [posi_w_graph, cov_graph, graph_solver] = local_solve_sliding_window( ...
-                    window_history, cfg, low_num);
-                imu_state_diagnostics = local_empty_imu_state_diagnostics(low_num);
-            end
             if imu_preint_active
+                [posi_w_graph, cov_graph, graph_solver, imu_state_diagnostics] = ...
+                    local_solve_sliding_window_imu_preint(window_history, cfg, low_num);
+                window_history = local_store_imu_window_states( ...
+                    window_history, imu_state_diagnostics);
                 imu_interval_buffer = local_empty_imu_interval_buffer(low_num);
+            else
+                [posi_w_graph, cov_graph, graph_solver] = ...
+                    local_solve_sliding_window(window_history, cfg, low_num);
             end
         else
             graph_1 = factor_graph_centralization(posi_L_graph, [0.2; 0.2; 0.5]);
@@ -418,17 +514,19 @@ for step = 1:cache.step_count
             graph_solver = graph_1;
         end
         graph_solve_seconds = toc(graph_solve_timer);
-        graph_linear_diagnostics = local_linear_system_diagnostics( ...
-            graph_solver.A, cfg.graph_condition_diagnostics);
-        for vehicle = 1:low_num
-            posiN_w_graph = posical_enu(posi_w_graph(:, vehicle), posi_ini);
-            [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = kalm_factor_measure_update( ...
-                current_time, posiN_w_all(:, vehicle), posiN_w_graph, cov_graph(:, vehicle), ...
-                Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}, 1);
-            [attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle)] = ...
-                kalm_modi(attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle), Xc_all{vehicle});
-            gyro_modi_all(:, vehicle) = Xc_all{vehicle}(10:12) + Xc_all{vehicle}(13:15);
-            acc_modi_all(:, vehicle) = Xc_all{vehicle}(16:18);
+        if strcmp(estimator_mode, 'fgo')
+            graph_linear_diagnostics = local_linear_system_diagnostics( ...
+                graph_solver.A, cfg.graph_condition_diagnostics);
+            for vehicle = 1:low_num
+                posiN_w_graph = posical_enu(posi_w_graph(:, vehicle), posi_ini);
+                [Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}] = kalm_factor_measure_update( ...
+                    current_time, posiN_w_all(:, vehicle), posiN_w_graph, cov_graph(:, vehicle), ...
+                    Xc_all{vehicle}, PK_all{vehicle}, Xerr_all{vehicle}, 1);
+                [attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle)] = ...
+                    kalm_modi(attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle), Xc_all{vehicle});
+                gyro_modi_all(:, vehicle) = Xc_all{vehicle}(10:12) + Xc_all{vehicle}(13:15);
+                acc_modi_all(:, vehicle) = Xc_all{vehicle}(16:18);
+            end
         end
         for vehicle = 1:low_num
             last_sins_after_graph(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
@@ -445,20 +543,31 @@ for step = 1:cache.step_count
         history(graph_index).cusum_prior_positions = node_positions_prior;
         history(graph_index).cusum_prior_covariances = node_covariances_prior;
         history(graph_index).graph_prior_positions = graph_positions_prior;
-        history(graph_index).graph_follower_positions = posi_w_graph;
-        history(graph_index).graph_follower_covariances = local_extract_current_follower_covariances( ...
-            graph_solver, low_num, cfg);
-        history(graph_index).gn_iteration_count = graph_solver.iteration_count;
-        history(graph_index).gn_final_step_norm = graph_solver.final_step_norm;
-        history(graph_index).gn_converged = graph_solver.converged;
+        if strcmp(estimator_mode, 'fgo')
+            history(graph_index).graph_follower_positions = posi_w_graph;
+            history(graph_index).graph_follower_covariances = local_extract_current_follower_covariances( ...
+                graph_solver, low_num, cfg);
+            history(graph_index).gn_iteration_count = graph_solver.iteration_count;
+            history(graph_index).gn_final_step_norm = graph_solver.final_step_norm;
+            history(graph_index).gn_converged = graph_solver.converged;
+        else
+            history(graph_index).graph_follower_positions = local_navigation_positions_enu( ...
+                posiN_w_all, posi_ini);
+            history(graph_index).graph_follower_covariances = local_kf_follower_covariances( ...
+                PK_all, posiN_w_all);
+        end
         history(graph_index).imu_preintegration_seconds = current_entry.preintegration_seconds;
         history(graph_index).imu_sample_counts = current_entry.imu_sample_counts;
         history(graph_index).imu_delta_t = current_entry.imu_delta_t;
         history(graph_index).imu_state_diagnostics = imu_state_diagnostics;
-        history(graph_index).imu_full_state_prior_count = imu_state_diagnostics.full_state_prior_count;
-        history(graph_index).imu_position_prior_count = imu_state_diagnostics.position_prior_count;
-        history(graph_index).imu_repropagation_count = imu_state_diagnostics.repropagation_count;
-        history(graph_index).imu_repropagation_seconds = imu_state_diagnostics.repropagation_seconds;
+        history(graph_index).imu_full_state_prior_count = ...
+            imu_state_diagnostics.full_state_prior_count;
+        history(graph_index).imu_position_prior_count = ...
+            imu_state_diagnostics.position_prior_count;
+        history(graph_index).imu_repropagation_count = ...
+            imu_state_diagnostics.repropagation_count;
+        history(graph_index).imu_repropagation_seconds = ...
+            imu_state_diagnostics.repropagation_seconds;
     end
 
     for vehicle = 1:low_num
@@ -466,15 +575,89 @@ for step = 1:cache.step_count
         truth_xyz(step + 1, :, vehicle) = posi_w_all(:, vehicle)';
         navigation_xyz(step + 1, :, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini)';
     end
+    for leader = 1:cfg.high_num
+        leader_truth_xyz(step + 1, :, leader) = ...
+            posical_xyz(posi_L_enu_all(:, leader), posi_ini)';
+    end
+end
+
+function [edges, weights] = local_ekf_range_edges(edges, weights, cfg)
+% A local 18-state EKF has no cross-covariance between different followers.
+% Therefore it only assimilates ranges to independent high-precision leaders;
+% follower-to-follower ranges remain available to FGO and to online logging.
+if ~cfg.ekf_range_leader_only || isempty(edges)
+    return;
+end
+
+low_num = cfg.uav_num - cfg.high_num;
+keep = false(numel(edges), 1);
+for edge_index = 1:numel(edges)
+    pair = sort([edges(edge_index).global_i, edges(edge_index).global_j]);
+    keep(edge_index) = pair(1) <= low_num && pair(2) > low_num;
+end
+edges = edges(keep);
+weights = weights(keep);
+end
+
+function [admitted_edges, admitted_weights] = local_ekf_alarm_surrogate_edges( ...
+        admitted_edges, admitted_weights, edges, detail, admitted_edge_mask, cfg)
+% Keep a confirmed raw leader range isolated.  If enabled, replace it with a
+% low-information surrogate generated by the same online range predictor
+% that feeds CUSUM.  This preserves weak geometry without reusing the raw
+% faulty observation or any offline fault information.
+if ~cfg.cusum_apply || ~cfg.ekf_cusum_alarm_surrogate_enable || ...
+        ~isfield(detail, 'alarm_active') || ...
+        ~isfield(detail, 'predicted_range') || ...
+        numel(detail.alarm_active) ~= numel(edges) || ...
+        numel(detail.predicted_range) ~= numel(edges)
+    return;
+end
+low_num = cfg.uav_num - cfg.high_num;
+for edge_index = 1:numel(edges)
+    pair = sort([edges(edge_index).global_i, edges(edge_index).global_j]);
+    if admitted_edge_mask(edge_index) || pair(1) > low_num || ...
+            pair(2) <= low_num || ~detail.alarm_active(edge_index)
+        continue;
+    end
+    predicted_range = detail.predicted_range(edge_index);
+    if ~isfinite(predicted_range) || predicted_range <= 0
+        continue;
+    end
+    surrogate = edges(edge_index);
+    surrogate.measurement = predicted_range;
+    admitted_edges(end + 1, 1) = surrogate; %#ok<AGROW>
+    admitted_weights(end + 1, 1) = ...
+        cfg.ekf_cusum_alarm_surrogate_weight; %#ok<AGROW>
+end
 end
 
 result.seed = cache.seed;
 result.time = (0:cache.step_count)' * cfg.dt;
 result.truth_xyz = truth_xyz;
+result.leader_truth_xyz = leader_truth_xyz;
 result.navigation_xyz = navigation_xyz;
 result.error_xyz = navigation_xyz - truth_xyz;
+result.range_time = (1:cache.graph_count)' * cfg.graph_interval;
+result.range_error = range_error_history;
+result.fault_segments = local_active_fault_segments(cfg);
 result.history = history;
 result.final_cusum_state = cusum_state;
+result.estimator_mode = estimator_mode;
+result.graph_mode = local_graph_mode(cfg);
+result.gps_update_applied = strcmp(estimator_mode, 'ekf');
+result.cusum_soft_weighting_applied = cfg.cusum_apply;
+result.imu_preintegration_applied = imu_preint_active;
+result.alarm_edge_exclusion_applied = cfg.cusum_apply && ...
+    cfg.sliding_window_exclude_alarmed_edges;
+result.complete_cusum_applied = result.cusum_soft_weighting_applied && ...
+    result.alarm_edge_exclusion_applied;
+if strcmp(estimator_mode, 'ekf')
+    result.cusum_detector_mode = 'range_predictor';
+elseif cfg.cusum_apply
+    result.cusum_detector_mode = lower(char(cfg.fgo_cusum_detector_mode));
+else
+    result.cusum_detector_mode = 'disabled';
+end
 result.metrics = local_metrics(result, cfg);
 result.diagnostics = local_diagnostics(history, cfg);
 result.gn_diagnostics = local_gn_diagnostics(history);
@@ -529,19 +712,105 @@ end
 end
 
 function dis_measure = local_inject_fault(dis_measure, current_time, cfg)
-if ~cfg.fault_enable || current_time < cfg.fault_start || current_time > cfg.fault_end
+segments = local_active_fault_segments(cfg);
+if isempty(segments)
     return;
 end
-fault_key = sort(cfg.fault_edge(:)');
 low_num = cfg.uav_num - cfg.high_num;
-if fault_key(1) <= low_num
-    source = fault_key(1);
-    target = fault_key(2);
-    dis_measure(source, target) = dis_measure(source, target) + cfg.fault_bias;
-elseif fault_key(2) <= low_num
-    source = fault_key(2);
-    target = fault_key(1);
-    dis_measure(source, target) = dis_measure(source, target) + cfg.fault_bias;
+for segment_index = 1:numel(segments)
+    segment = segments(segment_index);
+    if current_time < segment.start || current_time > segment.end
+        continue;
+    end
+    fault_key = sort(segment.edge(:)');
+    if fault_key(1) <= low_num
+        source = fault_key(1);
+        target = fault_key(2);
+        dis_measure(source, target) = dis_measure(source, target) + segment.bias;
+    elseif fault_key(2) <= low_num
+        source = fault_key(2);
+        target = fault_key(1);
+        dis_measure(source, target) = dis_measure(source, target) + segment.bias;
+    end
+end
+end
+
+function segments = local_resolve_fault_segments(cfg, seed)
+segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+    'edge', [NaN, NaN]), 0, 1);
+if ~cfg.fault_enable
+    return;
+end
+
+mode = lower(char(cfg.fault_mode));
+if strcmp(mode, 'single')
+    segments(1, 1) = struct('start', cfg.fault_start, 'end', cfg.fault_end, ...
+        'bias', cfg.fault_bias, 'edge', sort(cfg.fault_edge(:)'));
+    return;
+end
+
+specification = cfg.fault_segments;
+low_num = cfg.uav_num - cfg.high_num;
+if strcmp(mode, 'segmented_explicit_edges')
+    segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+        'edge', [NaN, NaN]), size(specification, 1), 1);
+    for segment_index = 1:size(specification, 1)
+        segments(segment_index) = struct( ...
+            'start', specification(segment_index, 1), ...
+            'end', specification(segment_index, 2), ...
+            'bias', specification(segment_index, 3), ...
+            'edge', sort(specification(segment_index, 4:5)));
+    end
+    return;
+end
+
+candidates = zeros(low_num * cfg.high_num, 2);
+candidate_index = 0;
+for follower = 1:low_num
+    for leader = 1:cfg.high_num
+        candidate_index = candidate_index + 1;
+        candidates(candidate_index, :) = [follower, low_num + leader];
+    end
+end
+
+% Select after the navigation input cache has been generated and use a
+% separate deterministic stream.  Thus edge selection is reproducible but
+% does not alter the IMU/GPS/range noise shared by the four methods.
+old_rng = rng;
+cleanup = onCleanup(@() rng(old_rng)); %#ok<NASGU>
+fault_seed = mod(round(double(seed)) + 104729, 2^32);
+rng(fault_seed, 'twister');
+if size(specification, 1) <= size(candidates, 1)
+    selected = randperm(size(candidates, 1), size(specification, 1));
+else
+    selected = randi(size(candidates, 1), size(specification, 1), 1);
+end
+
+segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+    'edge', [NaN, NaN]), size(specification, 1), 1);
+for segment_index = 1:size(specification, 1)
+    segments(segment_index) = struct( ...
+        'start', specification(segment_index, 1), ...
+        'end', specification(segment_index, 2), ...
+        'bias', specification(segment_index, 3), ...
+        'edge', candidates(selected(segment_index), :));
+end
+end
+
+function segments = local_active_fault_segments(cfg)
+segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+    'edge', [NaN, NaN]), 0, 1);
+if ~cfg.fault_enable
+    return;
+end
+if isfield(cfg, 'resolved_fault_segments')
+    segments = cfg.resolved_fault_segments;
+elseif strcmpi(cfg.fault_mode, 'single')
+    segments(1, 1) = struct('start', cfg.fault_start, 'end', cfg.fault_end, ...
+        'bias', cfg.fault_bias, 'edge', sort(cfg.fault_edge(:)'));
+else
+    error('run_stage1_cusum_comparison:UnresolvedFaultSegments', ...
+        'Segmented random fault edges must be resolved once from the experiment seed.');
 end
 end
 
@@ -569,13 +838,6 @@ else
 end
 end
 
-function result = local_run_original_equal_cached(cache, cfg)
-% Minimal original Equal-FGO path: it bypasses CUSUM entirely while retaining
-% the same cached inputs and the corrected common navigation/GN mechanics.
-cfg.cusum_apply = false;
-result = local_run_cached_simulation(cache, cfg, true);
-end
-
 function covariance_enu = local_kf_position_covariance_enu(PK, posi)
 % KF position states are [latitude(rad), longitude(rad), height(m)] at 7:9.
 % posical_xyz uses [east, north, up], so longitude and latitude are reordered.
@@ -594,6 +856,23 @@ state_to_enu = [0, (Rn + height) * cos(latitude), 0; ...
     0, 0, 1];
 covariance_enu = state_to_enu * PK(7:9, 7:9) * state_to_enu';
 covariance_enu = (covariance_enu + covariance_enu') / 2;
+end
+
+function positions_enu = local_navigation_positions_enu(posiN_w_all, posi_ini)
+low_num = size(posiN_w_all, 2);
+positions_enu = zeros(3, low_num);
+for vehicle = 1:low_num
+    positions_enu(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
+end
+end
+
+function covariances_enu = local_kf_follower_covariances(PK_all, posiN_w_all)
+low_num = numel(PK_all);
+covariances_enu = zeros(3, 3, low_num);
+for vehicle = 1:low_num
+    covariances_enu(:, :, vehicle) = local_kf_position_covariance_enu( ...
+        PK_all{vehicle}, posiN_w_all(:, vehicle));
+end
 end
 
 function detail = local_equal_weight_detail(edges)
@@ -677,8 +956,8 @@ entry.optimized_follower_states = cell(1, low_num);
 end
 
 function entry = local_make_window_entry(current_time, graph_positions_prior, edges, weights, detail, posiN_w_all, ...
-        veloN_all, attiN_all, imu_interval_buffer, posi_ini, last_sins_after_graph, ...
-        has_last_sins_after_graph, cfg)
+        veloN_all, attiN_all, imu_interval_buffer, posi_ini, ...
+        last_sins_after_graph, has_last_sins_after_graph, cfg)
 low_num = cfg.uav_num - cfg.high_num;
 entry = local_empty_window_entry(low_num, cfg.uav_num);
 entry.time = current_time;
@@ -704,16 +983,16 @@ for admission_edge_index = 1:edge_count
         local_global_to_internal(edges(admission_edge_index).global_i, cfg); ...
         local_global_to_internal(edges(admission_edge_index).global_j, cfg)];
     entry.range_measurements(entry_index) = edges(admission_edge_index).measurement;
-entry.range_weights(entry_index) = weights(admission_edge_index);
+    entry.range_weights(entry_index) = weights(admission_edge_index);
 end
 
 for vehicle = 1:low_num
     entry.follower_velocity_prior(:, vehicle) = veloN_all(:, vehicle);
-    entry.follower_rotation_prior(:, :, vehicle) = local_enu_rotation_from_attitude(attiN_all(:, vehicle));
+    entry.follower_rotation_prior(:, :, vehicle) = ...
+        local_enu_rotation_from_attitude(attiN_all(:, vehicle));
 end
-motion_model = local_sliding_window_motion_model(cfg);
-entry.has_motion = has_last_sins_after_graph && cfg.sliding_window_motion_enable && ...
-    strcmp(motion_model, 'sins_delta');
+entry.has_motion = has_last_sins_after_graph && ...
+    cfg.sliding_window_motion_enable && ~cfg.imu_preintegration_enable;
 if has_last_sins_after_graph
     current_sins_position = zeros(3, low_num);
     for vehicle = 1:low_num
@@ -721,20 +1000,20 @@ if has_last_sins_after_graph
     end
     entry.motion_delta = current_sins_position - last_sins_after_graph;
 end
-if strcmp(motion_model, 'imu_preint')
+if cfg.imu_preintegration_enable
     noise = imu_preintegration_default_noise(cfg);
     preintegration_timer = tic;
     for vehicle = 1:low_num
         samples = imu_interval_buffer{vehicle};
         if isempty(samples.dt)
             error('run_stage1_cusum_comparison:MissingImuSamples', ...
-                'IMU preintegration mode requires samples for every graph interval.');
+                'IMU preintegration requires samples for every graph interval.');
         end
-        % Inputs are already corrected by the current KF/SINS bias estimate;
-        % graph bias priors are residual corrections relative to that input.
-        entry.preintegrations{vehicle} = imu_preintegrate_interval(samples.gyro_rad_s, ...
-            samples.specific_force_mps2, samples.dt, zeros(3, 1), zeros(3, 1), noise);
-        entry.imu_sample_counts(vehicle) = entry.preintegrations{vehicle}.sample_count;
+        entry.preintegrations{vehicle} = imu_preintegrate_interval( ...
+            samples.gyro_rad_s, samples.specific_force_mps2, samples.dt, ...
+            zeros(3, 1), zeros(3, 1), noise);
+        entry.imu_sample_counts(vehicle) = ...
+            entry.preintegrations{vehicle}.sample_count;
         entry.imu_delta_t(vehicle) = entry.preintegrations{vehicle}.delta_t;
     end
     entry.preintegration_seconds = toc(preintegration_timer);
@@ -742,8 +1021,9 @@ end
 end
 
 function buffers = local_empty_imu_interval_buffer(low_num)
-template = struct('gyro_rad_s', zeros(3, 0), 'specific_force_mps2', zeros(3, 0), ...
-    'dt', zeros(1, 0), 'time', zeros(1, 0));
+template = struct('gyro_rad_s', zeros(3, 0), ...
+    'specific_force_mps2', zeros(3, 0), 'dt', zeros(1, 0), ...
+    'time', zeros(1, 0));
 buffers = repmat({template}, 1, low_num);
 end
 
@@ -751,13 +1031,32 @@ function rotation = local_enu_rotation_from_attitude(attitude_deg)
 roll = attitude_deg(1) * pi / 180;
 pitch = attitude_deg(2) * pi / 180;
 heading = attitude_deg(3) * pi / 180;
-% Existing SINS uses Cbn for navigation-to-body, hence R_enu_body = Cbn'.
 cbn = [cos(roll)*cos(heading)+sin(roll)*sin(pitch)*sin(heading), ...
-    -cos(roll)*sin(heading)+sin(roll)*sin(pitch)*cos(heading), -sin(roll)*cos(pitch); ...
+    -cos(roll)*sin(heading)+sin(roll)*sin(pitch)*cos(heading), ...
+    -sin(roll)*cos(pitch); ...
     cos(pitch)*sin(heading), cos(pitch)*cos(heading), sin(pitch); ...
     sin(roll)*cos(heading)-cos(roll)*sin(pitch)*sin(heading), ...
-    -sin(roll)*sin(heading)-cos(roll)*sin(pitch)*cos(heading), cos(roll)*cos(pitch)];
+    -sin(roll)*sin(heading)-cos(roll)*sin(pitch)*cos(heading), ...
+    cos(roll)*cos(pitch)];
 rotation = cbn';
+end
+
+function detector_cfg = local_cusum_detector_config(cfg, estimator_mode, ...
+        use_range_predictor_cusum)
+% Keep the EKF and FGO range-predictor soft-weight policies independent.
+% Both paths share the same online statistic and confirmed-alarm admission
+% logic; the FGO-only option is needed because a graph can retain several
+% current range factors for one follower in its sliding window.
+detector_cfg = cfg;
+if strcmp(estimator_mode, 'fgo') && use_range_predictor_cusum
+    detector_cfg.ekf_cusum_soft_weight_mode = cfg.fgo_cusum_soft_weight_mode;
+    detector_cfg.range_predictor_opposite_step_reset_enable = ...
+        cfg.fgo_cusum_opposite_step_reset_enable;
+    detector_cfg.range_predictor_opposite_step_reset_threshold = ...
+        cfg.fgo_cusum_opposite_step_reset_threshold;
+    detector_cfg.range_predictor_opposite_step_reset_epochs = ...
+        cfg.fgo_cusum_opposite_step_reset_epochs;
+end
 end
 
 function include_edge = local_window_admission_mask(edges, detail, cfg)
@@ -767,6 +1066,7 @@ if ~cfg.sliding_window_exclude_alarmed_edges || ~cfg.cusum_apply || ...
         ~isfield(detail, 'alarm_active') || numel(detail.alarm_active) ~= edge_count
     return;
 end
+
 alarm_active = detail.alarm_active(:);
 switch cfg.sliding_window_alarm_exclusion_mode
     case 'all'
@@ -964,9 +1264,9 @@ diagnostics.repropagation_count = 0;
 diagnostics.repropagation_seconds = 0;
 diagnostics.repropagation_per_factor = zeros(0, 1);
 end
-
 function covariances = local_extract_current_follower_covariances(graph_solver, low_num, cfg)
-if isa(graph_solver, 'factor_graph_sliding_window') || isa(graph_solver, 'factor_graph_sliding_window_imu_preint')
+if isa(graph_solver, 'factor_graph_sliding_window') || ...
+        isa(graph_solver, 'factor_graph_sliding_window_imu_preint')
     covariances = zeros(3, 3, low_num);
     for vehicle = 1:low_num
         covariances(:, :, vehicle) = graph_solver.get_position_covariance( ...
@@ -982,6 +1282,13 @@ iterations = [history.gn_iteration_count]';
 step_norms = [history.gn_final_step_norm]';
 converged = [history.gn_converged]';
 valid = isfinite(step_norms);
+if ~any(valid)
+    diagnostics.mean_iterations = NaN;
+    diagnostics.max_iterations = NaN;
+    diagnostics.nonconverged_count = 0;
+    diagnostics.final_step_norm = NaN;
+    return;
+end
 diagnostics.mean_iterations = mean(iterations(valid));
 diagnostics.max_iterations = max(iterations(valid));
 diagnostics.nonconverged_count = sum(~converged(valid));
@@ -1002,7 +1309,6 @@ diagnostics.max_sample_count = max([0; sample_counts(:)]);
 diagnostics.repropagation_count = sum(repropagation_counts(isfinite(repropagation_counts)));
 diagnostics.repropagation_seconds = sum(repropagation_seconds(isfinite(repropagation_seconds)));
 end
-
 function diagnostics = local_empty_linear_system_diagnostics()
 diagnostics.enabled = false;
 diagnostics.row_count = NaN;
@@ -1066,7 +1372,7 @@ end
 
 function metrics = local_metrics(result, cfg)
 low_num = cfg.uav_num - cfg.high_num;
-window_mask = result.time >= cfg.fault_start & result.time <= cfg.fault_end;
+window_mask = local_fault_window_mask(result.time, result.fault_segments);
 if ~any(window_mask)
     window_mask = false(size(result.time));
 end
@@ -1078,6 +1384,14 @@ for vehicle = 1:low_num
     if any(window_mask)
         metrics.window_rmse_3d(vehicle) = sqrt(mean(squared_error(window_mask)));
     end
+end
+end
+
+function mask = local_fault_window_mask(times, segments)
+mask = false(size(times));
+for segment_index = 1:numel(segments)
+    mask = mask | (times >= segments(segment_index).start & ...
+        times <= segments(segment_index).end);
 end
 end
 
@@ -1152,55 +1466,108 @@ diagnostics.edge = local_per_edge_diagnostics(pairs, innovations, weights, cvalu
 if ~cfg.fault_enable || isempty(pairs)
     return;
 end
-    target = sort(cfg.fault_edge(:)');
-    target_mask = pairs(:, 1) == target(1) & pairs(:, 2) == target(2);
-    fault_window = times >= cfg.fault_start & times <= cfg.fault_end;
-    target_window = target_mask & fault_window;
-    other_window = ~target_mask & fault_window;
-    other_full = ~target_mask;
-    if any(target_window)
-        diagnostics.target_cplus_median = median(cplus(target_window));
-        diagnostics.target_cminus_median = median(cminus(target_window));
-        diagnostics.target_cusum_median = median(cvalues(target_window));
-        diagnostics.target_weight_median_fault_window = median(weights(target_window));
-        diagnostics.target_weight_median = diagnostics.target_weight_median_fault_window;
-        target_innovation = innovations(target_window & isfinite(innovations));
-        if ~isempty(target_innovation)
-            diagnostics.target_signed_innovation_mean_fault_window = mean(target_innovation);
-            diagnostics.target_signed_innovation_median_fault_window = median(target_innovation);
-        end
+segments = local_active_fault_segments(cfg);
+target_window = false(size(times));
+fault_window = false(size(times));
+for segment_index = 1:numel(segments)
+    target = sort(segments(segment_index).edge(:)');
+    segment_window = times >= segments(segment_index).start & ...
+        times <= segments(segment_index).end;
+    target_window = target_window | (segment_window & ...
+        pairs(:, 1) == target(1) & pairs(:, 2) == target(2));
+    fault_window = fault_window | segment_window;
+end
+other_window = fault_window & ~target_window;
+other_full = ~target_window;
+if any(target_window)
+    diagnostics.target_cplus_median = median(cplus(target_window));
+    diagnostics.target_cminus_median = median(cminus(target_window));
+    diagnostics.target_cusum_median = median(cvalues(target_window));
+    diagnostics.target_weight_median_fault_window = median(weights(target_window));
+    diagnostics.target_weight_median = diagnostics.target_weight_median_fault_window;
+    target_innovation = innovations(target_window & isfinite(innovations));
+    if ~isempty(target_innovation)
+        diagnostics.target_signed_innovation_mean_fault_window = mean(target_innovation);
+        diagnostics.target_signed_innovation_median_fault_window = median(target_innovation);
     end
-    if any(other_window)
-        diagnostics.other_weight_median_fault_window = median(weights(other_window));
-        diagnostics.other_weight_median = diagnostics.other_weight_median_fault_window;
-        other_innovation = innovations(other_window & isfinite(innovations));
-        if ~isempty(other_innovation)
-            diagnostics.other_signed_innovation_mean_fault_window = mean(other_innovation);
-            diagnostics.other_signed_innovation_median_fault_window = median(other_innovation);
-        end
+end
+if any(other_window)
+    diagnostics.other_weight_median_fault_window = median(weights(other_window));
+    diagnostics.other_weight_median = diagnostics.other_weight_median_fault_window;
+    other_innovation = innovations(other_window & isfinite(innovations));
+    if ~isempty(other_innovation)
+        diagnostics.other_signed_innovation_mean_fault_window = mean(other_innovation);
+        diagnostics.other_signed_innovation_median_fault_window = median(other_innovation);
     end
-    if any(other_full)
-        diagnostics.other_weight_median_full = median(weights(other_full));
-    end
-    if isfinite(diagnostics.target_weight_median_fault_window) && ...
-            isfinite(diagnostics.other_weight_median_fault_window) && ...
-            diagnostics.other_weight_median_fault_window > 0
-        diagnostics.target_to_other_weight_ratio_fault_window = ...
-            diagnostics.target_weight_median_fault_window / diagnostics.other_weight_median_fault_window;
-        diagnostics.target_to_other_weight_ratio = diagnostics.target_to_other_weight_ratio_fault_window;
-    end
-diagnostics.detect_095_delay = local_first_threshold_crossing( ...
-    times, target_mask, weights, 0.95, cfg.fault_start, cfg.fault_end, false);
-diagnostics.detect_08_delay = local_first_threshold_crossing( ...
-    times, target_mask, weights, 0.8, cfg.fault_start, cfg.fault_end, false);
-diagnostics.recovery_095_delay = local_first_threshold_crossing( ...
-    times, target_mask, weights, 0.95, cfg.fault_end, Inf, true);
+end
+if any(other_full)
+    diagnostics.other_weight_median_full = median(weights(other_full));
+end
+if isfinite(diagnostics.target_weight_median_fault_window) && ...
+        isfinite(diagnostics.other_weight_median_fault_window) && ...
+        diagnostics.other_weight_median_fault_window > 0
+    diagnostics.target_to_other_weight_ratio_fault_window = ...
+        diagnostics.target_weight_median_fault_window / diagnostics.other_weight_median_fault_window;
+    diagnostics.target_to_other_weight_ratio = diagnostics.target_to_other_weight_ratio_fault_window;
+end
+diagnostics.fault_segment = local_fault_segment_diagnostics(segments, ...
+    pairs, times, weights, alarm_entered, alarm_cleared);
+diagnostics.detect_095_delay = local_finite_median( ...
+    [diagnostics.fault_segment.detect_095_delay]);
+diagnostics.detect_08_delay = local_finite_median( ...
+    [diagnostics.fault_segment.detect_08_delay]);
+diagnostics.recovery_095_delay = local_finite_median( ...
+    [diagnostics.fault_segment.recovery_095_delay]);
 diagnostics.weight_drop_095_delay = diagnostics.detect_095_delay;
 diagnostics.weight_drop_08_delay = diagnostics.detect_08_delay;
-diagnostics.alarm_delay = local_first_event_delay(times, target_mask, alarm_entered, ...
-    cfg.fault_start, cfg.fault_end);
-diagnostics.alarm_recovery_delay = local_first_event_delay(times, target_mask, alarm_cleared, ...
-    cfg.fault_end, Inf);
+diagnostics.alarm_delay = local_finite_median( ...
+    [diagnostics.fault_segment.alarm_delay]);
+diagnostics.alarm_recovery_delay = local_finite_median( ...
+    [diagnostics.fault_segment.alarm_recovery_delay]);
+end
+
+function segment_diagnostics = local_fault_segment_diagnostics(segments, ...
+        pairs, times, weights, alarm_entered, alarm_cleared)
+template = struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+    'edge', [NaN, NaN], 'target_weight_median', NaN, ...
+    'detect_095_delay', NaN, 'detect_08_delay', NaN, ...
+    'recovery_095_delay', NaN, 'alarm_delay', NaN, ...
+    'alarm_recovery_delay', NaN);
+segment_diagnostics = repmat(template, numel(segments), 1);
+for segment_index = 1:numel(segments)
+    segment = segments(segment_index);
+    target = sort(segment.edge(:)');
+    target_mask = pairs(:, 1) == target(1) & pairs(:, 2) == target(2);
+    target_window = target_mask & times >= segment.start & times <= segment.end;
+    entry = template;
+    entry.start = segment.start;
+    entry.end = segment.end;
+    entry.bias = segment.bias;
+    entry.edge = target;
+    if any(target_window)
+        entry.target_weight_median = median(weights(target_window));
+    end
+    entry.detect_095_delay = local_first_threshold_crossing( ...
+        times, target_mask, weights, 0.95, segment.start, segment.end, false);
+    entry.detect_08_delay = local_first_threshold_crossing( ...
+        times, target_mask, weights, 0.8, segment.start, segment.end, false);
+    entry.recovery_095_delay = local_first_threshold_crossing( ...
+        times, target_mask, weights, 0.95, segment.end, Inf, true);
+    entry.alarm_delay = local_first_event_delay(times, target_mask, ...
+        alarm_entered, segment.start, segment.end);
+    entry.alarm_recovery_delay = local_first_event_delay(times, target_mask, ...
+        alarm_cleared, segment.end, Inf);
+    segment_diagnostics(segment_index) = entry;
+end
+end
+
+function value = local_finite_median(values)
+values = values(isfinite(values));
+if isempty(values)
+    value = NaN;
+else
+    value = median(values);
+end
 end
 
 function edge_diagnostics = local_per_edge_diagnostics(pairs, innovations, weights, cvalues, ...
@@ -1294,22 +1661,13 @@ end
 
 function names = local_scenario_names(cfg)
 if cfg.fault_enable
-    names = {'healthy', 'fault'};
+    if cfg.include_healthy_scenario
+        names = {'healthy', 'fault'};
+    else
+        names = {'fault'};
+    end
 else
     names = {'healthy'};
-end
-end
-
-function mode = local_comparison_mode(cfg)
-mode = 'equal_vs_cusum';
-if isfield(cfg, 'comparison_mode') && ~isempty(cfg.comparison_mode)
-    mode = lower(char(cfg.comparison_mode));
-end
-valid_modes = {'equal_vs_cusum', 'original_vs_sliding_cusum', 'original_vs_sliding_equal'};
-if ~any(strcmp(mode, valid_modes))
-    error('run_stage1_cusum_comparison:InvalidComparisonMode', ...
-        ['comparison_mode must be ''equal_vs_cusum'', ''original_vs_sliding_cusum'', ' ...
-        'or ''original_vs_sliding_equal''.']);
 end
 end
 
@@ -1324,22 +1682,14 @@ if ~any(strcmp(mode, {'single_epoch', 'sliding_window'}))
 end
 end
 
-function mode = local_sliding_window_motion_model(cfg)
-mode = 'sins_delta';
-if isfield(cfg, 'sliding_window_motion_model') && ~isempty(cfg.sliding_window_motion_model)
-    mode = lower(char(cfg.sliding_window_motion_model));
+function mode = local_estimator_mode(cfg)
+mode = 'fgo';
+if isfield(cfg, 'estimator_mode') && ~isempty(cfg.estimator_mode)
+    mode = lower(char(cfg.estimator_mode));
 end
-if ~any(strcmp(mode, {'none', 'sins_delta', 'imu_preint'}))
-    error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionModel', ...
-        'sliding_window_motion_model must be ''none'', ''sins_delta'', or ''imu_preint''.');
-end
-end
-
-function length_value = local_active_window_length(cfg)
-if strcmp(local_sliding_window_motion_model(cfg), 'imu_preint')
-    length_value = cfg.imu_preint_window_length;
-else
-    length_value = cfg.sliding_window_length;
+if ~any(strcmp(mode, {'ekf', 'fgo'}))
+    error('run_stage1_cusum_comparison:InvalidEstimatorMode', ...
+        'estimator_mode must be ''ekf'' or ''fgo''.');
 end
 end
 
@@ -1347,31 +1697,33 @@ function mode = local_imu_preint_prior_mode(cfg)
 mode = lower(char(cfg.imu_preint_prior_mode));
 if ~any(strcmp(mode, {'first_frame_full', 'all_frames_full_legacy'}))
     error('run_stage1_cusum_comparison:InvalidImuPreintPriorMode', ...
-        'imu_preint_prior_mode must be ''first_frame_full'' or ''all_frames_full_legacy''.');
+        ['imu_preint_prior_mode must be ''first_frame_full'' or ' ...
+        '''all_frames_full_legacy''.']);
 end
 end
 
 function mode = local_imu_preint_feedback_mode(cfg)
 mode = lower(char(cfg.imu_preint_feedback_mode));
-if ~any(strcmp(mode, {'diagnostic', 'state_carryover', 'closed_loop'}))
+if ~any(strcmp(mode, {'diagnostic', 'state_carryover'}))
     error('run_stage1_cusum_comparison:InvalidImuPreintFeedbackMode', ...
-        'imu_preint_feedback_mode must be ''diagnostic'', ''state_carryover'', or ''closed_loop''.');
-end
-if strcmp(mode, 'closed_loop')
-    error('run_stage1_cusum_comparison:ClosedLoopNotSupported', ...
-        ['closed_loop is intentionally disabled: directly replacing SINS/KF velocity, attitude, and bias ' ...
-        'would double-count an unmodelled cross-covariance. Use state_carryover or diagnostic.']);
+        ['imu_preint_feedback_mode must be ''diagnostic'' or ' ...
+        '''state_carryover''.']);
 end
 end
 
-function labels = local_method_labels(comparison_mode)
-switch comparison_mode
-    case 'original_vs_sliding_cusum'
-        labels = {'original', 'sw-cusum'};
-    case 'original_vs_sliding_equal'
-        labels = {'original', 'sw-equal'};
-    otherwise
-        labels = {'equal', 'cusum'};
+function labels = local_selected_method_labels(method_names)
+labels = cell(size(method_names));
+for index = 1:numel(method_names)
+    switch method_names{index}
+        case 'ekf'
+            labels{index} = 'EKF';
+        case 'fgo'
+            labels{index} = 'FGO';
+        case 'cusum_ekf'
+            labels{index} = 'CUSUM-EKF';
+        case 'cusum_fgo'
+            labels{index} = 'CUSUM-FGO';
+    end
 end
 end
 
@@ -1380,359 +1732,159 @@ fprintf('[%2d/%d ] scenario=%-7s method=%-9s seed=%-6g ... done (%.2f s)\n', ...
     run_index, total_runs, scenario_name, method_name, seed, elapsed_seconds);
 end
 
-function local_plot_component_comparison(report, scenario_names)
-cfg = report.cfg;
-scenario_name = scenario_names{end};
-results = report.scenario_results.(scenario_name);
-seed_count = numel(results);
-time = results(1).equal.time;
-low_num = size(results(1).equal.error_xyz, 3);
-baseline_error = zeros(size(results(1).equal.error_xyz));
-enhanced_error = zeros(size(results(1).cusum.error_xyz));
-for seed_index = 1:seed_count
-    baseline_error = baseline_error + results(seed_index).equal.error_xyz;
-    enhanced_error = enhanced_error + results(seed_index).cusum.error_xyz;
-end
-baseline_error = baseline_error / seed_count;
-enhanced_error = enhanced_error / seed_count;
-
-followers = 1:low_num;
-if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices)
-    followers = cfg.plot_follower_indices(:)';
-end
-component_names = {'East error (m)', 'North error (m)', 'Up error (m)'};
-switch report.comparison_mode
-    case 'original_vs_sliding_equal'
-        baseline_label = 'Original FGO';
-        enhanced_label = 'Sliding-window Equal FGO';
-        figure_label = 'original vs sliding-window Equal FGO';
-    case 'original_vs_sliding_cusum'
-        baseline_label = 'Original FGO';
-        enhanced_label = 'Sliding-window + CUSUM FGO';
-        figure_label = 'original vs sliding-window CUSUM';
-    otherwise
-        baseline_label = 'Equal FGO';
-        enhanced_label = 'CUSUM FGO';
-        figure_label = 'single-epoch Equal FGO vs CUSUM FGO';
-end
-for follower = followers
-    figure('Name', sprintf('Follower%d: %s', follower, figure_label), ...
-        'NumberTitle', 'off');
-    for component = 1:3
-        subplot(3, 1, component);
-        plot(time, baseline_error(:, component, follower), 'b-', 'LineWidth', 1.0); hold on;
-        plot(time, enhanced_error(:, component, follower), 'r-', 'LineWidth', 1.0);
-        if cfg.fault_enable
-            xline(cfg.fault_start, 'k--', 'HandleVisibility', 'off');
-            xline(cfg.fault_end, 'k--', 'HandleVisibility', 'off');
+function local_print_four_method_rmse(report, scenario_names)
+fprintf('\nStage 1 four-method position RMSE (pooled across configured seeds)\n');
+fprintf('  %-8s %-10s %-10s %12s %12s %12s %12s\n', ...
+    'Scenario', 'Method', 'Follower', 'E RMSE(m)', 'N RMSE(m)', 'U RMSE(m)', '3D RMSE(m)');
+for scenario_index = 1:numel(scenario_names)
+    name = scenario_names{scenario_index};
+    scenario_metrics = report.position_metrics.scenarios.(name);
+    for method_index = 1:numel(report.method_names)
+        method_name = report.method_names{method_index};
+        method_metrics = scenario_metrics.(method_name);
+        for follower = 1:numel(method_metrics.RMSE_E)
+            fprintf('  %-8s %-10s Follower%-2d %12.6f %12.6f %12.6f %12.6f\n', ...
+                name, report.method_labels{method_index}, follower, ...
+                method_metrics.RMSE_E(follower), method_metrics.RMSE_N(follower), ...
+                method_metrics.RMSE_U(follower), method_metrics.RMSE_3D(follower));
         end
-        grid on;
-        ylabel(component_names{component});
-        if component == 1
-            legend(baseline_label, enhanced_label, 'Location', 'best');
-            if seed_count == 1
-                title(sprintf('Follower%d position-error comparison (%s)', follower, scenario_name));
-            else
-                title(sprintf('Follower%d mean position-error comparison across %d seeds (%s)', ...
-                    follower, seed_count, scenario_name));
+    end
+end
+fprintf('\n');
+
+if isfield(report.paired_comparisons.scenarios, 'fault') && ...
+        ~isempty(report.paired_comparisons.pair_names)
+    comparisons = report.paired_comparisons.scenarios.fault;
+    pair_names = report.paired_comparisons.pair_names;
+    if strcmpi(report.cfg.fault_mode, 'single')
+        fprintf(['Fault-scenario paired 3D RMSE (mean of per-seed RMSE; ' ...
+            'fault window %.3f--%.3f s)\n'], ...
+            report.cfg.fault_start, report.cfg.fault_end);
+    else
+        fprintf(['Fault-scenario paired 3D RMSE (mean of per-seed RMSE; ' ...
+            'combined configured fault segments)\n']);
+    end
+    fprintf('  %-21s %-10s %11s %11s %10s %11s %11s %10s\n', ...
+        'Comparison', 'Follower', 'Base full', 'CUSUM full', 'Change(%)', ...
+        'Base window', 'CUSUM window', 'Change(%)');
+    for pair_index = 1:numel(pair_names)
+        pair = comparisons.(pair_names{pair_index});
+        for follower = 1:numel(pair.full.baseline_rmse_3d)
+            fprintf('  %-21s Follower%-2d %11.6f %11.6f %10.2f %11.6f %11.6f %10.2f\n', ...
+                pair.label, follower, pair.full.baseline_rmse_3d(follower), ...
+                pair.full.cusum_rmse_3d(follower), pair.full.percent_change(follower), ...
+                pair.fault_window.baseline_rmse_3d(follower), ...
+                pair.fault_window.cusum_rmse_3d(follower), ...
+                pair.fault_window.percent_change(follower));
+        end
+    end
+    fprintf('\n');
+end
+end
+
+
+function aggregate = local_aggregate_four_methods(seed_results, method_names)
+aggregate = struct();
+for method_index = 1:numel(method_names)
+    method_name = method_names{method_index};
+    seed_count = numel(seed_results);
+    low_num = numel(seed_results(1).(method_name).metrics.full_rmse_3d);
+    full_values = zeros(seed_count, low_num);
+    window_values = nan(seed_count, low_num);
+    for seed_index = 1:seed_count
+        full_values(seed_index, :) = seed_results(seed_index).(method_name).metrics.full_rmse_3d';
+        window_values(seed_index, :) = seed_results(seed_index).(method_name).metrics.window_rmse_3d';
+    end
+    aggregate.(method_name).full_rmse_mean = mean(full_values, 1)';
+    aggregate.(method_name).full_rmse_std = std(full_values, 0, 1)';
+    aggregate.(method_name).window_rmse_mean = mean(window_values, 1, 'omitnan')';
+    aggregate.(method_name).window_rmse_std = std(window_values, 0, 1, 'omitnan')';
+end
+end
+
+function segment_metrics = local_fault_segment_position_metrics( ...
+        scenario_results, method_names)
+segment_metrics = struct([]);
+if ~isfield(scenario_results, 'fault')
+    return;
+end
+results = scenario_results.fault;
+template = struct('seed', NaN, 'segments', struct([]), 'methods', struct());
+segment_metrics = repmat(template, numel(results), 1);
+for seed_index = 1:numel(results)
+    reference = results(seed_index).(method_names{1});
+    segments = reference.fault_segments;
+    entry = template;
+    entry.seed = results(seed_index).seed;
+    entry.segments = segments;
+    for method_index = 1:numel(method_names)
+        method_name = method_names{method_index};
+        result = results(seed_index).(method_name);
+        low_num = size(result.error_xyz, 3);
+        rmse_3d = nan(numel(segments), low_num);
+        for segment_index = 1:numel(segments)
+            mask = result.time >= segments(segment_index).start & ...
+                result.time <= segments(segment_index).end;
+            for follower = 1:low_num
+                squared_error = sum(result.error_xyz(mask, :, follower).^2, 2);
+                rmse_3d(segment_index, follower) = sqrt(mean(squared_error));
             end
         end
-        if component == 3
-            xlabel('Time (s)');
+        entry.methods.(method_name).rmse_3d = rmse_3d;
+    end
+    segment_metrics(seed_index) = entry;
+end
+end
+
+function paired = local_four_method_paired_comparisons(scenario_aggregates, scenario_names)
+paired.pair_names = cell(0, 1);
+pair_definitions = {
+    'cusum_ekf_vs_ekf', 'EKF -> CUSUM-EKF', 'ekf', 'cusum_ekf';
+    'cusum_fgo_vs_fgo', 'FGO -> CUSUM-FGO', 'fgo', 'cusum_fgo'
+};
+available_methods = fieldnames(scenario_aggregates.(scenario_names{1}));
+for pair_index = 1:size(pair_definitions, 1)
+    if ismember(pair_definitions{pair_index, 3}, available_methods) && ...
+            ismember(pair_definitions{pair_index, 4}, available_methods)
+        paired.pair_names{end + 1, 1} = pair_definitions{pair_index, 1}; %#ok<AGROW>
+    end
+end
+paired.scenarios = struct();
+for scenario_index = 1:numel(scenario_names)
+    scenario_name = scenario_names{scenario_index};
+    aggregate = scenario_aggregates.(scenario_name);
+    scenario_comparisons = struct();
+    for pair_index = 1:size(pair_definitions, 1)
+        pair_name = pair_definitions{pair_index, 1};
+        if ~ismember(pair_name, paired.pair_names)
+            continue;
         end
+        baseline_name = pair_definitions{pair_index, 3};
+        cusum_name = pair_definitions{pair_index, 4};
+        baseline = aggregate.(baseline_name);
+        cusum = aggregate.(cusum_name);
+
+        comparison.label = pair_definitions{pair_index, 2};
+        comparison.baseline_method = baseline_name;
+        comparison.cusum_method = cusum_name;
+        comparison.full.baseline_rmse_3d = baseline.full_rmse_mean;
+        comparison.full.cusum_rmse_3d = cusum.full_rmse_mean;
+        comparison.full.percent_change = local_percent_change_vector( ...
+            cusum.full_rmse_mean, baseline.full_rmse_mean);
+        comparison.fault_window.baseline_rmse_3d = baseline.window_rmse_mean;
+        comparison.fault_window.cusum_rmse_3d = cusum.window_rmse_mean;
+        comparison.fault_window.percent_change = local_percent_change_vector( ...
+            cusum.window_rmse_mean, baseline.window_rmse_mean);
+        scenario_comparisons.(pair_name) = comparison;
     end
+    paired.scenarios.(scenario_name) = scenario_comparisons;
 end
 end
 
-function local_print_comparison_tables(report, scenario_names)
-cfg = report.cfg;
-if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
-    fprintf('\nStage 1 original FGO vs sliding-window CUSUM-FGO\n');
-    reference_label = 'Original';
-elseif strcmp(report.comparison_mode, 'original_vs_sliding_equal')
-    fprintf('\nStage 1 original FGO vs sliding-window Equal-FGO\n');
-    reference_label = 'Original';
-else
-    fprintf('\nStage 1 CUSUM comparison\n');
-    reference_label = 'Equal';
-end
-fprintf('  Mode                : %s\n', local_mode_label(cfg));
-fprintf('  Seeds               : %s\n', local_seed_text(cfg.seeds));
-if cfg.fault_enable
-    fault_key = sort(cfg.fault_edge(:)');
-    fprintf('  Fault configuration : edge (%d,%d), %.3f-%.3f s, bias %+.3f m\n', ...
-        fault_key(1), fault_key(2), cfg.fault_start, cfg.fault_end, cfg.fault_bias);
-else
-    fprintf('  Fault configuration : disabled\n');
-end
-if strcmp(report.comparison_mode, 'original_vs_sliding_equal')
-    fprintf('  CUSUM weights       : disabled (equal range weights)\n');
-else
-    fprintf('  CUSUM weights       : applied\n');
-end
-if strcmp(report.comparison_mode, 'original_vs_sliding_cusum')
-    fprintf('  SW CUSUM consensus  : %s\n', ...
-        local_enabled_label(cfg.sliding_window_cusum_consensus_enable));
-    fprintf('  Alarm-edge admission: %s\n', local_alarm_admission_label(cfg));
-end
-if cfg.cusum_baseline_enable
-    fprintf('  Nominal calibration : enabled (warm-up + abrupt-change lock)\n');
-else
-    fprintf('  Nominal calibration : disabled\n');
-end
-if cfg.plot_component_comparison
-    fprintf('  Output              : command window + figures (no files)\n');
-else
-    fprintf('  Output              : command window only (no files)\n');
-end
-
-fprintf('\nPer-follower positioning summary (averaged across seeds only)\n');
-fprintf('  %-8s %-10s %-10s %14s %22s %18s %20s\n', ...
-    'Scenario', 'Method', 'Follower', 'Full RMSE(m)', 'Fault-window RMSE(m)', ...
-    ['Full vs ' reference_label], ['Window vs ' reference_label]);
-for scenario_index = 1:numel(scenario_names)
-    scenario_name = scenario_names{scenario_index};
-    aggregate = report.scenario_aggregates.(scenario_name);
-    local_print_summary_rows(scenario_name, report.method_labels{1}, aggregate.equal_full_mean, ...
-        aggregate.equal_window_mean, aggregate.equal_full_mean, aggregate.equal_window_mean);
-    local_print_summary_rows(scenario_name, report.method_labels{2}, aggregate.cusum_full_mean, ...
-        aggregate.cusum_window_mean, aggregate.equal_full_mean, aggregate.equal_window_mean);
-end
-
-if numel(cfg.seeds) > 1
-    fprintf('\nPer-follower RMSE standard deviation across seeds\n');
-    fprintf('  %-8s %-10s %-10s %20s %28s\n', ...
-        'Scenario', 'Method', 'Follower', 'Full RMSE Std(m)', 'Fault-window RMSE Std(m)');
-    for scenario_index = 1:numel(scenario_names)
-        scenario_name = scenario_names{scenario_index};
-        aggregate = report.scenario_aggregates.(scenario_name);
-        local_print_std_rows(scenario_name, report.method_labels{1}, aggregate.equal_full_std, aggregate.equal_window_std);
-        local_print_std_rows(scenario_name, report.method_labels{2}, aggregate.cusum_full_std, aggregate.cusum_window_std);
-    end
-    fprintf('\nWorst-seed %s full RMSE\n', report.method_labels{2});
-    fprintf('  %-8s %-10s %18s %10s\n', 'Scenario', 'Follower', 'Worst RMSE(m)', 'Seed');
-    for scenario_index = 1:numel(scenario_names)
-        scenario_name = scenario_names{scenario_index};
-        aggregate = report.scenario_aggregates.(scenario_name);
-        for vehicle = 1:numel(aggregate.cusum_full_worst)
-            fprintf('  %-8s %-10s %18.6f %10g\n', scenario_name, ...
-                sprintf('Follower%d', vehicle), aggregate.cusum_full_worst(vehicle), ...
-                aggregate.cusum_full_worst_seed(vehicle));
-        end
-    end
-end
-
-if ~strcmp(report.comparison_mode, 'original_vs_sliding_equal')
-    local_print_weight_diagnostics(report, scenario_names);
-end
-local_print_gn_diagnostics(report, scenario_names);
-end
-
-function local_print_summary_rows(scenario_name, method_name, full_values, window_values, equal_full, equal_window)
-for vehicle = 1:numel(full_values)
-    if all(full_values(vehicle) == equal_full(vehicle)) && ...
-            ((isnan(window_values(vehicle)) && isnan(equal_window(vehicle))) || ...
-            window_values(vehicle) == equal_window(vehicle))
-        full_change = 0;
-        window_change = 0;
-    else
-        full_change = local_percent_change(full_values(vehicle), equal_full(vehicle));
-        window_change = local_percent_change(window_values(vehicle), equal_window(vehicle));
-    end
-    fprintf('  %-8s %-10s %-10s %14.6f %22.6f %18s %20s\n', ...
-        scenario_name, method_name, sprintf('Follower%d', vehicle), ...
-        full_values(vehicle), window_values(vehicle), ...
-        local_percent_text(full_change), local_percent_text(window_change));
-end
-end
-
-function local_print_std_rows(scenario_name, method_name, full_std, window_std)
-for vehicle = 1:numel(full_std)
-    fprintf('  %-8s %-10s %-10s %20.6f %28.6f\n', ...
-        scenario_name, method_name, sprintf('Follower%d', vehicle), ...
-        full_std(vehicle), window_std(vehicle));
-end
-end
-
-function local_print_weight_diagnostics(report, scenario_names)
-fprintf('\nCUSUM weight diagnostics\n');
-fprintf('  %-8s %-6s %8s %10s %14s %8s\n', ...
-    'Scenario', 'Seed', 'Max C', 'Fallback', 'Missing decay', 'Reset');
-for scenario_index = 1:numel(scenario_names)
-    scenario_name = scenario_names{scenario_index};
-    results = report.scenario_results.(scenario_name);
-    for seed_index = 1:numel(results)
-        diagnostics = results(seed_index).cusum.diagnostics;
-        fprintf('  %-8s %-6g %8.3f %10d %14d %8d\n', ...
-            scenario_name, results(seed_index).seed, diagnostics.max_cusum, ...
-            diagnostics.nonfinite_fallback_count, diagnostics.missing_decay_count, diagnostics.reset_count);
-    end
-end
-
-if isfield(report.scenario_results, 'fault')
-    results = report.scenario_results.fault;
-    fprintf('\nCUSUM fault-edge diagnostics\n');
-    fprintf('  %-6s %12s %14s %13s %12s %13s %12s %15s %15s\n', ...
-        'Seed', 'Fault weight', 'Healthy wt(window)', 'Fault/Healthy', ...
-        'Alarm(s)', 'Drop .95(s)', 'Drop .8(s)', 'Alarm clear(s)', 'Weight rec(s)');
-    for seed_index = 1:numel(results)
-        diagnostics = results(seed_index).cusum.diagnostics;
-        fprintf('  %-6g %12.6f %14.6f %13.6f %12s %13s %12s %15s %15s\n', ...
-            results(seed_index).seed, diagnostics.target_weight_median_fault_window, ...
-            diagnostics.other_weight_median_fault_window, ...
-            diagnostics.target_to_other_weight_ratio_fault_window, ...
-            local_number_or_label(diagnostics.alarm_delay, 'not alarmed'), ...
-            local_number_or_label(diagnostics.weight_drop_095_delay, 'not dropped'), ...
-            local_number_or_label(diagnostics.weight_drop_08_delay, 'not dropped'), ...
-            local_number_or_label(diagnostics.alarm_recovery_delay, 'not cleared'), ...
-            local_number_or_label(diagnostics.recovery_095_delay, 'not recovered'));
-    end
-end
-
-if isfield(report.scenario_results, 'healthy')
-    results = report.scenario_results.healthy;
-    fprintf('\nCUSUM healthy-edge diagnostics\n');
-    fprintf('  %-6s %14s %15s %14s %8s %9s %9s\n', ...
-        'Seed', 'Median weight', 'Weight<0.95', 'Weight<0.8', 'Max C', 'Alarms', 'Freezes');
-    for seed_index = 1:numel(results)
-        diagnostics = results(seed_index).cusum.diagnostics;
-        fprintf('  %-6g %14.6f %14.2f%% %13.2f%% %8.3f %9d %9d\n', ...
-            results(seed_index).seed, diagnostics.healthy_weight_median, ...
-            100 * diagnostics.healthy_weight_below_095_fraction, ...
-            100 * diagnostics.healthy_weight_below_08_fraction, diagnostics.max_cusum, ...
-            diagnostics.health_alarm_count, diagnostics.baseline_freeze_event_count);
-    end
-end
-local_print_per_edge_diagnostics(report, scenario_names);
-fprintf('\n');
-end
-
-function local_print_per_edge_diagnostics(report, scenario_names)
-fprintf('\nCUSUM per-edge diagnostics\n');
-fprintf('  %-8s %-6s %-6s %9s %9s %6s %6s %8s %10s %10s %10s %9s %7s %7s %8s\n', ...
-    'Scenario', 'Seed', 'Edge', 'Innov mean', 'Innov std', 'Run+', 'Run-', 'Max C', ...
-    'Median wt', 'Wt<.95', 'Wt<.8', 'Alarms', 'Freeze', 'Unfreeze', 'Updates');
-for scenario_index = 1:numel(scenario_names)
-    scenario_name = scenario_names{scenario_index};
-    results = report.scenario_results.(scenario_name);
-    for seed_index = 1:numel(results)
-        edge_diagnostics = results(seed_index).cusum.diagnostics.edge;
-        for edge_index = 1:numel(edge_diagnostics)
-            edge = edge_diagnostics(edge_index);
-            fprintf('  %-8s %-6g %d-%-4d %9.3f %9.3f %6d %6d %8.3f %10.6f %9.2f%% %9.2f%% %9d %7d %7d %8d\n', ...
-                scenario_name, results(seed_index).seed, edge.pair(1), edge.pair(2), ...
-                edge.innovation_mean, edge.innovation_std, edge.max_positive_run, ...
-                edge.max_negative_run, edge.max_cusum, ...
-                edge.weight_median, 100 * edge.weight_below_095_fraction, ...
-                100 * edge.weight_below_08_fraction, edge.alarm_count, ...
-                edge.freeze_count, edge.unfreeze_count, edge.baseline_update_count);
-        end
-    end
-end
-end
-
-function local_print_gn_diagnostics(report, scenario_names)
-fprintf('\nGN convergence diagnostics\n');
-    fprintf('  %-8s %-10s %-6s %15s %14s %14s %17s\n', ...
-    'Scenario', 'Method', 'Seed', 'Mean iterations', 'Max iterations', ...
-    'Nonconverged', 'Final step norm');
-for scenario_index = 1:numel(scenario_names)
-    scenario_name = scenario_names{scenario_index};
-    results = report.scenario_results.(scenario_name);
-    for seed_index = 1:numel(results)
-        equal_gn = results(seed_index).equal.gn_diagnostics;
-        cusum_gn = results(seed_index).cusum.gn_diagnostics;
-        local_print_gn_row(scenario_name, report.method_labels{1}, results(seed_index).seed, equal_gn);
-        local_print_gn_row(scenario_name, report.method_labels{2}, results(seed_index).seed, cusum_gn);
-    end
-end
-fprintf('\n');
-end
-
-function local_print_gn_row(scenario_name, method_name, seed, diagnostics)
- fprintf('  %-8s %-10s %-6g %15.3f %14d %14d %17.3e\n', ...
-    scenario_name, method_name, seed, diagnostics.mean_iterations, ...
-    diagnostics.max_iterations, diagnostics.nonconverged_count, diagnostics.final_step_norm);
-end
-
-function value = local_percent_change(value, reference)
-if ~isfinite(value) || ~isfinite(reference) || reference == 0
-    value = NaN;
-else
-    value = 100 * (value - reference) / reference;
-end
-end
-
-function text_value = local_percent_text(value)
-if isfinite(value)
-    text_value = sprintf('%+.2f%%', value);
-else
-    text_value = 'NaN';
-end
-end
-
-function text_value = local_number_or_label(value, label)
-if isfinite(value)
-    text_value = sprintf('%.2f', value);
-else
-    text_value = label;
-end
-end
-
-function label = local_mode_label(cfg)
-if isfield(cfg, 'mode')
-    label = cfg.mode;
-elseif cfg.t_stop <= 20
-    label = 'quick';
-else
-    label = 'full';
-end
-end
-
-function label = local_enabled_label(value)
-if value
-    label = 'enabled';
-else
-    label = 'disabled';
-end
-end
-
-function label = local_alarm_admission_label(cfg)
-if ~cfg.sliding_window_exclude_alarmed_edges
-    label = 'disabled';
-else
-    label = cfg.sliding_window_alarm_exclusion_mode;
-end
-end
-
-function text_value = local_seed_text(seeds)
-text_value = strtrim(sprintf('%g ', seeds));
-end
-
-function aggregate = local_aggregate(seed_results)
-seed_count = numel(seed_results);
-low_num = numel(seed_results(1).equal.metrics.full_rmse_3d);
-equal_full = zeros(seed_count, low_num);
-cusum_full = zeros(seed_count, low_num);
-equal_window = nan(seed_count, low_num);
-cusum_window = nan(seed_count, low_num);
-for index = 1:seed_count
-    equal_full(index, :) = seed_results(index).equal.metrics.full_rmse_3d';
-    cusum_full(index, :) = seed_results(index).cusum.metrics.full_rmse_3d';
-    equal_window(index, :) = seed_results(index).equal.metrics.window_rmse_3d';
-    cusum_window(index, :) = seed_results(index).cusum.metrics.window_rmse_3d';
-end
-aggregate.equal_full_mean = mean(equal_full, 1)';
-aggregate.equal_full_std = std(equal_full, 0, 1)';
-aggregate.cusum_full_mean = mean(cusum_full, 1)';
-aggregate.cusum_full_std = std(cusum_full, 0, 1)';
-aggregate.equal_window_mean = mean(equal_window, 1, 'omitnan')';
-aggregate.equal_window_std = std(equal_window, 0, 1, 'omitnan')';
-aggregate.cusum_window_mean = mean(cusum_window, 1, 'omitnan')';
-aggregate.cusum_window_std = std(cusum_window, 0, 1, 'omitnan')';
-[aggregate.cusum_full_worst, worst_index] = max(cusum_full, [], 1);
-aggregate.cusum_full_worst = aggregate.cusum_full_worst';
-aggregate.cusum_full_worst_seed = [seed_results(worst_index).seed]';
+function percent = local_percent_change_vector(value, reference)
+percent = nan(size(value));
+valid = isfinite(value) & isfinite(reference) & abs(reference) > eps;
+percent(valid) = 100 * (value(valid) - reference(valid)) ./ reference(valid);
 end
 
 function merged = local_merge_config(defaults, supplied)
@@ -1745,13 +1897,23 @@ end
 
 function local_validate_experiment_config(cfg)
 low_num = cfg.uav_num - cfg.high_num;
-is_original_scenario = cfg.uav_num == 5 && cfg.high_num == 3 && low_num == 2;
-is_redundant_scenario = cfg.uav_num == 6 && cfg.high_num == 4 && low_num == 2;
-is_three_follower_scenario = cfg.uav_num == 6 && cfg.high_num == 3 && low_num == 3;
-if ~(is_original_scenario || is_redundant_scenario || is_three_follower_scenario)
+if cfg.uav_num ~= 6 || cfg.high_num ~= 3 || low_num ~= 3
     error('run_stage1_cusum_comparison:UnsupportedScenario', ...
-        ['Use the original 5-UAV/3-leader scenario, the redundant 6-UAV/4-leader scenario, ' ...
-        'or the 6-UAV/3-follower/3-leader scenario.']);
+        'The streamlined runner supports only the 3-follower/3-leader scenario.');
+end
+if ~isscalar(cfg.include_healthy_scenario) || ...
+        (~islogical(cfg.include_healthy_scenario) && ...
+        ~ismember(cfg.include_healthy_scenario, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidHealthyScenarioSwitch', ...
+        'include_healthy_scenario must be logical or 0/1.');
+end
+valid_methods = {'ekf', 'fgo', 'cusum_ekf', 'cusum_fgo'};
+if ~iscell(cfg.methods) || isempty(cfg.methods) || ...
+        ~all(cellfun(@(name) ischar(name) || isstring(name), cfg.methods)) || ...
+        any(~ismember(cellfun(@char, cfg.methods, 'UniformOutput', false), valid_methods)) || ...
+        numel(unique(cellfun(@char, cfg.methods, 'UniformOutput', false))) ~= numel(cfg.methods)
+    error('run_stage1_cusum_comparison:InvalidMethods', ...
+        'methods must be a non-empty unique subset of EKF/FGO/CUSUM-EKF/CUSUM-FGO.');
 end
 if ~isnumeric(cfg.base_leader_source_indices) || ...
         ~isequal(size(cfg.base_leader_source_indices), [1, 3]) || ...
@@ -1776,12 +1938,64 @@ if abs(cfg.sigma_dis - 0.2) > eps
     error('run_stage1_cusum_comparison:OriginalNoiseModelOnly', ...
         'Stage 1 preserves the original range standard deviation sigma_dis = 0.2 m.');
 end
-if numel(cfg.fault_edge) ~= 2 || any(cfg.fault_edge < 1) || any(cfg.fault_edge > cfg.uav_num) || cfg.fault_edge(1) == cfg.fault_edge(2)
-    error('run_stage1_cusum_comparison:InvalidFaultEdge', 'fault_edge must identify two different global UAVs.');
+if ~ischar(cfg.fault_mode) && ~isstring(cfg.fault_mode)
+    error('run_stage1_cusum_comparison:InvalidFaultMode', ...
+        ['fault_mode must be ''single'', ''segmented_random_edge'', or ', ...
+        '''segmented_explicit_edges''.']);
 end
-if cfg.fault_enable && (cfg.fault_start < 0 || cfg.fault_end <= cfg.fault_start || cfg.fault_end > cfg.t_stop)
-    error('run_stage1_cusum_comparison:InvalidFaultWindow', ...
-        'For an enabled fault, require 0 <= fault_start < fault_end <= t_stop.');
+fault_mode = lower(char(cfg.fault_mode));
+if ~any(strcmp(fault_mode, {'single', 'segmented_random_edge', ...
+        'segmented_explicit_edges'}))
+    error('run_stage1_cusum_comparison:InvalidFaultMode', ...
+        ['fault_mode must be ''single'', ''segmented_random_edge'', or ', ...
+        '''segmented_explicit_edges''.']);
+end
+if strcmp(fault_mode, 'single')
+    if numel(cfg.fault_edge) ~= 2 || any(cfg.fault_edge < 1) || ...
+            any(cfg.fault_edge > cfg.uav_num) || cfg.fault_edge(1) == cfg.fault_edge(2)
+        error('run_stage1_cusum_comparison:InvalidFaultEdge', ...
+            'fault_edge must identify two different global UAVs.');
+    end
+    if cfg.fault_enable && (cfg.fault_start < 0 || ...
+            cfg.fault_end <= cfg.fault_start || cfg.fault_end > cfg.t_stop)
+        error('run_stage1_cusum_comparison:InvalidFaultWindow', ...
+            'For an enabled fault, require 0 <= fault_start < fault_end <= t_stop.');
+    end
+else
+    explicit_edges = strcmp(fault_mode, 'segmented_explicit_edges');
+    expected_columns = 3 + 2 * explicit_edges;
+    if ~isnumeric(cfg.fault_segments) || ...
+            size(cfg.fault_segments, 2) ~= expected_columns || ...
+            isempty(cfg.fault_segments) || any(~isfinite(cfg.fault_segments(:))) || ...
+            any(cfg.fault_segments(:, 1) < 0) || ...
+            any(cfg.fault_segments(:, 2) <= cfg.fault_segments(:, 1)) || ...
+            any(cfg.fault_segments(:, 2) > cfg.t_stop) || ...
+            any(cfg.fault_segments(:, 3) == 0)
+        if explicit_edges
+            description = ['fault_segments must be rows [start, end, bias, ', ...
+                'follower, leader_global] inside the simulation interval.'];
+        else
+            description = ['fault_segments must be rows [start, end, bias] ', ...
+                'inside the simulation interval.'];
+        end
+        error('run_stage1_cusum_comparison:InvalidFaultSegments', description);
+    end
+    if explicit_edges
+        followers = cfg.fault_segments(:, 4);
+        leaders = cfg.fault_segments(:, 5);
+        if any(followers ~= floor(followers)) || ...
+                any(leaders ~= floor(leaders)) || any(followers < 1) || ...
+                any(followers > low_num) || any(leaders <= low_num) || ...
+                any(leaders > cfg.uav_num)
+            error('run_stage1_cusum_comparison:InvalidExplicitFaultEdge', ...
+                ['Explicit fault rows must use a valid follower index and a ', ...
+                'valid global leader index.']);
+        end
+    elseif any(cfg.fault_segments(2:end, 1) <= cfg.fault_segments(1:end-1, 2))
+        error('run_stage1_cusum_comparison:InvalidFaultSegments', ...
+            ['Segmented random fault rows must be ordered and non-overlapping ', ...
+            'with a healthy gap between rows.']);
+    end
 end
 if ~isscalar(cfg.sliding_window_length) || cfg.sliding_window_length < 1 || ...
         cfg.sliding_window_length ~= floor(cfg.sliding_window_length)
@@ -1809,6 +2023,55 @@ if ~isscalar(cfg.sliding_window_cusum_consensus_enable) || ...
     error('run_stage1_cusum_comparison:InvalidSlidingWindowConsensus', ...
         'sliding_window_cusum_consensus_enable must be logical or 0/1.');
 end
+if (~ischar(cfg.ekf_cusum_soft_weight_mode) && ...
+        ~isstring(cfg.ekf_cusum_soft_weight_mode)) || ...
+        ~any(strcmpi(char(cfg.ekf_cusum_soft_weight_mode), ...
+        {'all', 'per_follower_max'}))
+    error('run_stage1_cusum_comparison:InvalidEkfCusumSoftWeightMode', ...
+        'ekf_cusum_soft_weight_mode must be ''all'' or ''per_follower_max''.');
+end
+if (~ischar(cfg.fgo_cusum_soft_weight_mode) && ...
+        ~isstring(cfg.fgo_cusum_soft_weight_mode)) || ...
+        ~any(strcmpi(char(cfg.fgo_cusum_soft_weight_mode), ...
+        {'all', 'per_follower_max'}))
+    error('run_stage1_cusum_comparison:InvalidFgoCusumSoftWeightMode', ...
+        'fgo_cusum_soft_weight_mode must be ''all'' or ''per_follower_max''.');
+end
+if ~isscalar(cfg.fgo_cusum_opposite_step_reset_enable) || ...
+        (~islogical(cfg.fgo_cusum_opposite_step_reset_enable) && ...
+        ~ismember(cfg.fgo_cusum_opposite_step_reset_enable, [0, 1])) || ...
+        ~isscalar(cfg.fgo_cusum_opposite_step_reset_threshold) || ...
+        ~isfinite(cfg.fgo_cusum_opposite_step_reset_threshold) || ...
+        cfg.fgo_cusum_opposite_step_reset_threshold <= 0 || ...
+        ~isscalar(cfg.fgo_cusum_opposite_step_reset_epochs) || ...
+        cfg.fgo_cusum_opposite_step_reset_epochs < 1 || ...
+        cfg.fgo_cusum_opposite_step_reset_epochs ~= ...
+        floor(cfg.fgo_cusum_opposite_step_reset_epochs)
+    error('run_stage1_cusum_comparison:InvalidFgoCusumRecovery', ...
+        'FGO predictor recovery settings must be finite positive scalars.');
+end
+if ~isscalar(cfg.ekf_cusum_alarm_surrogate_enable) || ...
+        (~islogical(cfg.ekf_cusum_alarm_surrogate_enable) && ...
+        ~ismember(cfg.ekf_cusum_alarm_surrogate_enable, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidEkfCusumSurrogateEnable', ...
+        'ekf_cusum_alarm_surrogate_enable must be logical or 0/1.');
+end
+if ~isscalar(cfg.ekf_cusum_alarm_surrogate_weight) || ...
+        ~isreal(cfg.ekf_cusum_alarm_surrogate_weight) || ...
+        ~isfinite(cfg.ekf_cusum_alarm_surrogate_weight) || ...
+        cfg.ekf_cusum_alarm_surrogate_weight <= 0 || ...
+        cfg.ekf_cusum_alarm_surrogate_weight > 1
+    error('run_stage1_cusum_comparison:InvalidEkfCusumSurrogateWeight', ...
+        'ekf_cusum_alarm_surrogate_weight must be a finite scalar in (0, 1].');
+end
+if (~ischar(cfg.fgo_cusum_detector_mode) && ...
+        ~isstring(cfg.fgo_cusum_detector_mode)) || ...
+        ~any(strcmpi(char(cfg.fgo_cusum_detector_mode), ...
+        {'prior_innovation', 'range_predictor'}))
+    error('run_stage1_cusum_comparison:InvalidFgoCusumDetectorMode', ...
+        ['fgo_cusum_detector_mode must be ''prior_innovation'' or ', ...
+        '''range_predictor''.']);
+end
 if ~isnumeric(cfg.sliding_window_motion_std) || ~isreal(cfg.sliding_window_motion_std) || ...
         numel(cfg.sliding_window_motion_std) ~= 3 || ...
         any(~isfinite(cfg.sliding_window_motion_std(:))) || any(cfg.sliding_window_motion_std(:) <= 0)
@@ -1821,45 +2084,67 @@ if ~isscalar(cfg.sliding_window_motion_enable) || ...
     error('run_stage1_cusum_comparison:InvalidSlidingWindowMotionEnable', ...
         'sliding_window_motion_enable must be logical or 0/1.');
 end
-local_sliding_window_motion_model(cfg);
-if ~isscalar(cfg.imu_preint_window_length) || cfg.imu_preint_window_length < 1 || ...
+if ~isscalar(cfg.imu_preintegration_enable) || ...
+        (~islogical(cfg.imu_preintegration_enable) && ...
+        ~ismember(cfg.imu_preintegration_enable, [0, 1]))
+    error('run_stage1_cusum_comparison:InvalidImuPreintegrationEnable', ...
+        'imu_preintegration_enable must be logical or 0/1.');
+end
+if ~isscalar(cfg.imu_preint_window_length) || ...
+        cfg.imu_preint_window_length < 1 || ...
         cfg.imu_preint_window_length ~= floor(cfg.imu_preint_window_length)
     error('run_stage1_cusum_comparison:InvalidImuPreintWindowLength', ...
         'imu_preint_window_length must be a positive integer.');
 end
 positive_scalar_fields = {'imu_preint_gyro_bias_repropagate_threshold', ...
-    'imu_preint_acc_bias_repropagate_threshold', 'imu_preint_gyro_noise_std', ...
-    'imu_preint_gyro_bias_rw_std', ...
+    'imu_preint_acc_bias_repropagate_threshold', ...
+    'imu_preint_gyro_noise_std', 'imu_preint_gyro_bias_rw_std', ...
     'imu_preint_acc_bias_rw_std', 'imu_preint_gn_step_tolerance', ...
-    'imu_preint_covariance_regularization', ...
-    'imu_preint_position_eps', 'imu_preint_velocity_eps', 'imu_preint_rotation_eps', ...
+    'imu_preint_covariance_regularization', 'imu_preint_position_eps', ...
+    'imu_preint_velocity_eps', 'imu_preint_rotation_eps', ...
     'imu_preint_gyro_bias_eps', 'imu_preint_acc_bias_eps'};
 for field_index = 1:numel(positive_scalar_fields)
     value = cfg.(positive_scalar_fields{field_index});
     if ~isscalar(value) || ~isreal(value) || ~isfinite(value) || value <= 0
         error('run_stage1_cusum_comparison:InvalidImuPreintParameter', ...
-            '%s must be a positive finite scalar.', positive_scalar_fields{field_index});
+            '%s must be a positive finite scalar.', ...
+            positive_scalar_fields{field_index});
     end
 end
-if ~isscalar(cfg.imu_preint_acc_noise_std) || ~isreal(cfg.imu_preint_acc_noise_std) || ...
-        ~isfinite(cfg.imu_preint_acc_noise_std) || cfg.imu_preint_acc_noise_std < 0
+if ~isscalar(cfg.imu_preint_acc_noise_std) || ...
+        ~isreal(cfg.imu_preint_acc_noise_std) || ...
+        ~isfinite(cfg.imu_preint_acc_noise_std) || ...
+        cfg.imu_preint_acc_noise_std < 0
     error('run_stage1_cusum_comparison:InvalidImuPreintParameter', ...
         'imu_preint_acc_noise_std must be a non-negative finite scalar.');
 end
-if ~isscalar(cfg.imu_preint_gn_max_iterations) || cfg.imu_preint_gn_max_iterations < 1 || ...
-        cfg.imu_preint_gn_max_iterations ~= floor(cfg.imu_preint_gn_max_iterations)
+if ~isscalar(cfg.imu_preint_gn_max_iterations) || ...
+        cfg.imu_preint_gn_max_iterations < 1 || ...
+        cfg.imu_preint_gn_max_iterations ~= ...
+        floor(cfg.imu_preint_gn_max_iterations)
     error('run_stage1_cusum_comparison:InvalidImuPreintIterations', ...
         'imu_preint_gn_max_iterations must be a positive integer.');
 end
-positive_vector_fields = {'imu_preint_position_prior_std', 'imu_preint_velocity_prior_std', ...
-    'imu_preint_rotation_prior_std', 'imu_preint_gyro_bias_prior_std', 'imu_preint_acc_bias_prior_std'};
+positive_vector_fields = {'imu_preint_position_prior_std', ...
+    'imu_preint_velocity_prior_std', 'imu_preint_rotation_prior_std', ...
+    'imu_preint_gyro_bias_prior_std', 'imu_preint_acc_bias_prior_std'};
 for field_index = 1:numel(positive_vector_fields)
     value = cfg.(positive_vector_fields{field_index});
-    if ~isnumeric(value) || ~isreal(value) || numel(value) ~= 3 || any(~isfinite(value(:))) || any(value(:) <= 0)
+    if ~isnumeric(value) || ~isreal(value) || numel(value) ~= 3 || ...
+            any(~isfinite(value(:))) || any(value(:) <= 0)
         error('run_stage1_cusum_comparison:InvalidImuPreintPriorStd', ...
-            '%s must be a positive finite three-element vector.', positive_vector_fields{field_index});
+            '%s must be a positive finite three-element vector.', ...
+            positive_vector_fields{field_index});
     end
 end
+if ~any(strcmpi(char(cfg.imu_preint_covariance_mode), ...
+        {'full_pinv_legacy', 'current_frame_only'}))
+    error('run_stage1_cusum_comparison:InvalidImuPreintCovarianceMode', ...
+        ['imu_preint_covariance_mode must be ''full_pinv_legacy'' or ' ...
+        '''current_frame_only''.']);
+end
+local_imu_preint_prior_mode(cfg);
+local_imu_preint_feedback_mode(cfg);
 if ~isscalar(cfg.graph_condition_diagnostics) || ...
         (~islogical(cfg.graph_condition_diagnostics) && ...
         ~ismember(cfg.graph_condition_diagnostics, [0, 1]))
@@ -1872,8 +2157,6 @@ if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices) 
     error('run_stage1_cusum_comparison:InvalidPlotFollowers', ...
         'plot_follower_indices must contain valid follower indices.');
 end
-local_comparison_mode(cfg);
 local_graph_mode(cfg);
-local_imu_preint_prior_mode(cfg);
-local_imu_preint_feedback_mode(cfg);
+local_estimator_mode(cfg);
 end

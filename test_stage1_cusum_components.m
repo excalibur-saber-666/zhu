@@ -125,6 +125,46 @@ local_expect_error(@() compute_signed_cusum_edge_weights( ...
     edge_a, positions, invalid_covariances, cfg, [], 1), ...
     'Non-PSD covariance was accepted.');
 
+% EKF-CUSUM uses its own online range-domain predictor.  A persistent step
+% must be confirmed and softened without consulting any offline fault fields.
+ekf_cfg = cfg;
+ekf_cfg.ekf_cusum_calibration_samples = 3;
+ekf_cfg.ekf_cusum_range_predictor_std = 0.8;
+ekf_cfg.ekf_cusum_predictor_freeze_threshold = 1.5;
+ekf_state_a = [];
+ekf_state_b = [];
+ekf_cfg_with_offline_fault = ekf_cfg;
+ekf_cfg_with_offline_fault.fault_enable = true;
+ekf_cfg_with_offline_fault.fault_edge = [2, 4];
+ekf_cfg_with_offline_fault.fault_start = 999;
+ekf_cfg_with_offline_fault.fault_end = 1000;
+ekf_cfg_with_offline_fault.fault_bias = 99;
+for time = 1:10
+    measurement = 10 + 0.1 * time;
+    if time >= 7
+        measurement = measurement + 3;
+    end
+    ekf_edge = local_edge(1, 3, measurement);
+    [ekf_weight_a, ekf_detail_a, ekf_state_a] = compute_ekf_cusum_range_weights( ...
+        ekf_edge, ekf_cfg, ekf_state_a, time);
+    [ekf_weight_b, ekf_detail_b, ekf_state_b] = compute_ekf_cusum_range_weights( ...
+        ekf_edge, ekf_cfg_with_offline_fault, ekf_state_b, time);
+end
+assert(ekf_detail_a.alarm_active && ekf_weight_a < 1 && ...
+    ekf_detail_a.cusum_value > ekf_cfg.ekf_cusum_alarm_on_threshold, ...
+    'EKF-CUSUM did not confirm and soften a persistent range step.');
+assert(isequal(ekf_weight_a, ekf_weight_b) && ...
+    isequal(ekf_detail_a.cusum_value, ekf_detail_b.cusum_value) && ...
+    isequal(ekf_state_a, ekf_state_b), ...
+    'EKF-CUSUM read offline fault metadata.');
+for time = 11:16
+    ekf_edge = local_edge(1, 3, 10 + 0.1 * time);
+    [ekf_weight_a, ekf_detail_a, ekf_state_a] = compute_ekf_cusum_range_weights( ...
+        ekf_edge, ekf_cfg, ekf_state_a, time);
+end
+assert(~ekf_detail_a.alarm_active && ekf_weight_a == 1, ...
+    'EKF-CUSUM did not release a confirmed alarm after nominal innovations returned.');
+
 state_example = (1:18)';
 gyro_correction = state_example(10:12) + state_example(13:15);
 assert(isequal(gyro_correction, [23; 25; 27]), 'Three-axis gyro correction indices are incorrect.');

@@ -5,13 +5,14 @@ cfg.seeds = 23;
 cfg.fault_enable = true;
 cfg.fault_edge = [2, 4];
 cfg.fault_bias = 5;
-cfg.comparison_mode = 'original_vs_sliding_cusum';
-cfg.sliding_window_motion_model = 'imu_preint';
+cfg.imu_preintegration_enable = true;
 cfg.imu_preint_window_length = 3;
 cfg.verbose = false;
-cfg.plot_component_comparison = false;
-report = run_stage1_cusum_comparison(cfg);
-result = report.scenario_results.fault(1).cusum;
+cfg.plot_position_results = false;
+report = main_stage1('cusum_fgo', cfg);
+result = report.scenario_results.fault(1).cusum_fgo;
+assert(result.imu_preintegration_applied, ...
+    'The IMU-preintegration switch did not activate CUSUM-FGO.');
 assert(all(isfinite(result.metrics.full_rmse_3d)) && all(isfinite(result.metrics.window_rmse_3d)));
 assert(result.diagnostics.target_weight_median_fault_window < 1, ...
     'CUSUM target-edge weighting is not active in IMU preintegration mode.');

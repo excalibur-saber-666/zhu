@@ -1,72 +1,93 @@
-# 基于卡尔曼滤波与因子图相结合的协同导航方法
+# 3F3L 协同导航四方法对比实验
 
-本仓库是一个 MATLAB 协同导航研究工程。当前主要实验将 SINS/Kalman
-滤波、因子图优化、滑动窗口、在线 CUSUM 测距边加权与可选的 IMU 预积分
-结合，用于比较不同的鲁棒协同定位策略。
+这是一个 MATLAB 仿真项目，用于比较三架僚机（Follower 1--3）和三架长机（Leader 1--3）组成的协同导航网络。在同一组 IMU、GPS、测距噪声和测距故障下，项目比较 EKF、FGO、CUSUM-EKF 与 CUSUM-FGO 四种方法。
 
-## 当前能力
+所有 MATLAB 源文件、核心测试和初始位置数据均平铺在项目根目录；不要重新按 `src/`、`tests/` 等目录拆分。论文草稿、下载的文献 PDF 和本地 Monte Carlo 结果均被忽略，不会提交到 GitHub。
 
-- 单历元 Equal-FGO 与 CUSUM-FGO 对比；
-- 固定长度滑动窗口，以及可配置的告警测距边准入策略；
-- 3F3L（三架从机、三架领机）实验配置；
-- 可选的 15 状态 IMU 预积分滑动窗口因子；
-- 单元测试、烟雾测试和实验实现报告。
+## 论文使用的实验
 
-实验结果依赖于配置、随机种子和故障场景；仓库中的结果不应被解读为对
-所有场景都成立的精度结论。
+当前论文图、表和 50 次 Monte Carlo 统计**只能**使用原始配置 `li_style_dense`。它包含 600 s 仿真、0.02 s IMU 更新、1 s 图优化和 13 段 3/4/6 m 的僚机--长机测距偏差，其中既有单边故障，也有不同僚机上的同时故障。
 
-## 快速开始
-
-在 MATLAB 中切换到本仓库根目录后，先运行与目标路径相符的快速测试：
+运行一组代表性试验并显示 MATLAB 图：
 
 ```matlab
-test_stage1_3f3l_smoke
-test_stage1_3f3l_imu_preint_smoke
+setup_project
+report = run_li_style_comparison(23, true, 'li_style_dense');
 ```
 
-运行当前 3F3L 的 IMU 预积分对比：
+运行论文的 50 次 Monte Carlo 统计与出图：
 
 ```matlab
-cfg = stage1_cusum_3f3l_config('full');
+setup_project
+summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
+```
+
+第二个命令会在根目录生成本地结果目录 `li_style_mc50_results/`，其中包含 CSV、XLSX 和 MATLAB 图片；该目录已被 `.gitignore` 排除。
+
+## 四个对照组
+
+| 方法 | 图结构/估计器 | CUSUM 处理 | 用途 |
+| --- | --- | --- | --- |
+| `EKF` | 固定权重的协同 18 状态 EKF | 无 | 传统滤波基线 |
+| `FGO` | 单历元、等权因子图 | 无 | 传统因子图基线 |
+| `CUSUM-EKF` | 协同 EKF | 在线双侧 CUSUM、软降权、确认后选择性隔离 | EKF 消融对照 |
+| `CUSUM-FGO` | 10 帧滑动窗口因子图，含 SINS 相对位移因子 | 在线双侧 CUSUM、软降权、确认后选择性隔离 | 论文主方法 |
+
+四个方法由同一个缓存的随机输入驱动，因而不会因 IMU、GPS、测距噪声或故障调度不同而产生不公平比较。在线检测函数没有真值、故障边、故障时段或故障幅值的输入；这些信息只用于离线注入和统计。
+
+更完整的算法边界、故障表、公式和文件映射见 [EXPERIMENT_CONTEXT.md](EXPERIMENT_CONTEXT.md)。该文件是交给 GPT 或后续开发者理解本项目时应优先阅读的说明。
+
+## 单独运行一个消融组
+
+```matlab
+setup_project
+cfg = stage1_cusum_3f3l_config('li_style_dense');
 cfg.seeds = 23;
-cfg.fault_enable = true;
-cfg.fault_edge = [2, 4];
-cfg.fault_start = 100;
-cfg.fault_end = 150;
-cfg.fault_bias = 3;
-cfg.imu_preint_window_length = 3;
-cfg.plot_component_comparison = false;
-report = run_stage1_imu_preintegration_comparison(cfg);
+cfg.plot_position_results = true;
+
+report = main_stage1('ekf', cfg);
+report = main_stage1('fgo', cfg);
+report = main_stage1('cusum_ekf', cfg);
+report = main_stage1('cusum_fgo', cfg);
 ```
 
-常规的 CUSUM 对比入口为 `run_stage1_cusum_comparison.m`；默认和 3F3L
-配置分别见 `stage1_cusum_default_config.m` 与
-`stage1_cusum_3f3l_config.m`。
+快速冒烟检查可改用 `stage1_cusum_3f3l_config('quick')`；它缩短仿真时间，不可作为论文结果。
 
-## 重要文件
+## 保留但未用于论文的改进配置
 
-- `factor_graph_sliding_window.m`：位置状态滑动窗口因子图；
-- `factor_graph_sliding_window_imu_preint.m`：独立的 15 状态 IMU 预积分
-  因子图；
-- `compute_signed_cusum_edge_weights.m`：在线 CUSUM 测距边权重；
-- `IMU预积分_实施与验证报告.md`：预积分实现、验证与已知限制；
-- `使用说明_第一阶段_CUSUM.md`：完整实验入口和配置说明；
-- `AGENTS.md`：供 Codex 使用的代码、测试和 GitHub 协作规范。
+以下配置是为研究调参而保留的代码路径，**未用于当前论文的任何图、表或 50 次统计，不能与 `li_style_dense` 的结果混用**：
 
-## GitHub 与代码审查
+- `li_style_dense_tuned`：对同一僚机下所有可疑长机边进行软降权，并给 CUSUM-EKF 启用低信息预测测距替代项。
+- `li_style_dense_fgo_recovered`：在 `tuned` 基础上，当在线统计确认持续反向突变时重置 FGO 检测器的测距预测器，以避免陈旧告警长期占用健康几何。
 
-`main` 是稳定协作基线；每个修改应从 `main` 创建聚焦的分支，并通过
-提交记录和 Pull Request 说明变更。仓库规则要求 Codex 在完成一组已验证
-的逻辑修改后，将该分支推送到 GitHub。
+例如，仅作研究复核时：
 
-在网页版 ChatGPT 连接本仓库后，可以使用下面的审查提示：
-
-```text
-请审查仓库 excalibur-saber-666/zhu 的 <分支名> 分支；只提出建议，不直接修改。
-重点检查：MATLAB 维度/索引错误、ENU 与单位一致性、因子残差和协方差白化、
-CUSUM 是否错误使用真值或故障标签、随机性可复现性，以及测试覆盖。
-按 P0–P3 排序，每项给出 文件:行号、问题、依据、建议补丁和应运行的测试。
+```matlab
+report = run_li_style_comparison(23, true, 'li_style_dense_tuned');
 ```
 
-收到审查意见后，将意见或 Issue/PR 链接交给 Codex。Codex 会核实建议、
-完成必要修改和测试，并把变更、验证结果及提交推送回 GitHub。
+## 可选 IMU 预积分
+
+IMU 预积分作为研究变体保留，默认关闭，也不属于当前论文四方法结果。开启后，它只替换 CUSUM-FGO 的 SINS 相对位移因子，不改变另外三个对照组：
+
+```matlab
+cfg.imu_preintegration_enable = true;
+report = main_stage1('cusum_fgo', cfg);
+```
+
+## 核心入口与测试
+
+- `setup_project.m`：将当前根目录加入 MATLAB 路径。
+- `main_stage1.m`：四方法或单方法的统一入口。
+- `stage1_cusum_3f3l_config.m`：3F3L 场景、论文故障调度和备用改进配置。
+- `run_stage1_cusum_comparison.m`：生成共享随机输入并执行各估计器。
+- `run_li_style_comparison.m`：单一代表性种子入口。
+- `run_li_style_paper_experiment.m`：Monte Carlo、统计表和 MATLAB 图入口。
+
+运行保留的核心检查：
+
+```matlab
+results = run_core_tests;
+```
+
+测试覆盖 CUSUM 的在线性与告警逻辑、四方法共享输入及单方法入口，以及默认关闭的 IMU 预积分变体。
