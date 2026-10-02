@@ -184,7 +184,7 @@ if cfg.assert_node_mapping
     end
 end
 
-data_directory = stage1_project_root();
+data_directory = fullfile(stage1_project_root(), 'code', 'data');
 posi_e_all = load(fullfile(data_directory, 'posi_e_all.dat'));
 posi_n_all = load(fullfile(data_directory, 'posi_n_all.dat'));
 posi_u_all = load(fullfile(data_directory, 'posi_u_all.dat'));

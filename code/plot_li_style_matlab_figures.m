@@ -4,7 +4,7 @@ function figure_files = plot_li_style_matlab_figures(summary, output_directory)
 %   for experiment review; publication styling can be performed separately.
 
 if nargin < 2 || isempty(output_directory)
-    output_directory = fullfile(stage1_project_root(), 'li_style_mc30_results');
+    output_directory = fullfile(stage1_project_root(), '结果', 'li_style_mc30_results');
 end
 if ~isfolder(output_directory)
     mkdir(output_directory);

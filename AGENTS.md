@@ -8,17 +8,30 @@ an optional IMU-preintegration motion factor.  Preserve the existing baseline
 experiments when adding a research variant: new behavior must be opt-in through
 configuration rather than silently replacing a baseline path.
 
+## Workspace layout
+
+- Active MATLAB source and tests are in `code/`; initial-position data is in
+  `code/data/`. Do not add `code/历史工具/` recursively to the MATLAB path.
+- Author manuscripts and revision records are in `论文/`.
+- Generated experiments and organization records are in `结果/`.
+- Reference papers and document templates are in `资料/`.
+- From the workspace root, run `addpath(fullfile(pwd, 'code')); setup_project`
+  before invoking the entry points or tests. `stage1_project_root` returns
+  the workspace root independently of the MATLAB current directory.
+- Local manuscripts, reference downloads, generated output, and historical
+  document-building tools remain untracked; preserve already tracked notes.
+
 ## Key entry points
 
-- `run_stage1_cusum_comparison.m` is the primary configurable experiment
+- `code/run_stage1_cusum_comparison.m` is the primary configurable experiment
   runner.
-- `stage1_cusum_3f3l_config.m` configures the current three-follower,
+- `code/stage1_cusum_3f3l_config.m` configures the current three-follower,
   three-leader (3F3L) experiments.
-- `factor_graph_sliding_window.m` implements the position-only sliding-window
-  path; `factor_graph_sliding_window_imu_preint.m` implements the separate
+- `code/factor_graph_sliding_window.m` implements the position-only sliding-window
+  path; `code/factor_graph_sliding_window_imu_preint.m` implements the separate
   15-state IMU-preintegration path.
-- `run_stage1_imu_preintegration_comparison.m` compares the baseline,
-  SINS-delta sliding window, and IMU-preintegration variants.
+- `code/run_core_tests.m` runs the retained detector, four-method,
+  and IMU-preintegration smoke tests.
 
 Read the relevant implementation report and existing tests before changing an
 algorithm.  Do not claim an accuracy improvement without reporting the tested
@@ -44,11 +57,10 @@ Run the smallest relevant MATLAB tests before committing.  At minimum, use the
 matching test file for the changed path.  Useful smoke tests include:
 
 ```matlab
-test_stage1_3f3l_smoke
+addpath(fullfile(pwd, 'code')); setup_project
+test_stage1_cusum_components
 test_stage1_3f3l_imu_preint_smoke
-test_imu_preintegration_zero_motion
-test_imu_preintegration_partition_consistency
-test_imu_preintegration_jacobian
+test_stage1_four_method_comparison_smoke
 ```
 
 If MATLAB is unavailable or a full simulation is impractical, do not claim the

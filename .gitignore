@@ -23,3 +23,15 @@
 /li_style_dense_trial_results/
 *.docx
 *.pdf
+
+# Organized local manuscripts, reference material, generated output, and
+# archived document-building tools. Existing tracked notes stay tracked.
+/论文/
+/资料/
+/结果/
+/code/历史工具/
+/code/slprj/
+/code/codegen/
+/code/*_hybrid*.dat
+__pycache__/
+*.pyc

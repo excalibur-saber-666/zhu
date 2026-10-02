@@ -2,7 +2,16 @@
 
 这是一个 MATLAB 仿真项目，用于比较三架僚机（Follower 1--3）和三架长机（Leader 1--3）组成的协同导航网络。在同一组 IMU、GPS、测距噪声和测距故障下，项目比较 EKF、FGO、CUSUM-EKF 与 CUSUM-FGO 四种方法。
 
-所有 MATLAB 源文件、核心测试和初始位置数据均平铺在项目根目录；不要重新按 `src/`、`tests/` 等目录拆分。论文草稿、下载的文献 PDF 和本地 Monte Carlo 结果均被忽略，不会提交到 GitHub。
+工作区按用途分为四个文件夹：
+
+- `code/`：50 个现有 MATLAB 源文件与测试；初始位置数据位于 `code/data/`，使用说明位于 `code/说明/`。旧文档构建脚本归档在 `code/历史工具/`，不会自动加入 MATLAB 路径。
+- `论文/`：英文稿、中文草稿、可编辑流程图、审稿意见与修订记录；旧稿保存在 `论文/历史版本/`。
+- `结果/`：现有实验输出、历史中间文件以及本次整理的迁移清单和校验记录。后续默认结果也写入此目录。
+- `资料/`：参考论文、参考文献记录及 EIC 排版模板。
+
+根目录保留项目说明和 Git/工具配置。论文正文、下载资料、生成结果和历史构建工具只在本地保留，不提交到 GitHub。已有受版本控制的修订说明保留其跟踪状态。
+
+下面的 MATLAB 命令从工作区根目录执行。也可以进入 `code/` 后直接调用 `setup_project`；数据路径按文件位置解析，与当前工作目录无关。
 
 ## 论文使用的实验
 
@@ -11,6 +20,7 @@
 运行一组代表性试验并显示 MATLAB 图：
 
 ```matlab
+addpath(fullfile(pwd, 'code'));
 setup_project
 report = run_li_style_comparison(23, true, 'li_style_dense');
 ```
@@ -18,11 +28,12 @@ report = run_li_style_comparison(23, true, 'li_style_dense');
 运行论文的 50 次 Monte Carlo 统计与出图：
 
 ```matlab
+addpath(fullfile(pwd, 'code'));
 setup_project
 summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
 ```
 
-第二个命令会在根目录生成本地结果目录 `li_style_mc50_results/`，其中包含 CSV、XLSX 和 MATLAB 图片；该目录已被 `.gitignore` 排除。
+第二个命令会在 `结果` 文件夹中生成本地结果目录 `li_style_mc50_results/`，其中包含 CSV、XLSX 和 MATLAB 图片；该目录已被 `.gitignore` 排除。
 
 ## 四个对照组
 
@@ -35,11 +46,12 @@ summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
 
 四个方法由同一个缓存的随机输入驱动，因而不会因 IMU、GPS、测距噪声或故障调度不同而产生不公平比较。在线检测函数没有真值、故障边、故障时段或故障幅值的输入；这些信息只用于离线注入和统计。
 
-更完整的算法边界、故障表、公式和文件映射见 [EXPERIMENT_CONTEXT.md](EXPERIMENT_CONTEXT.md)。该文件是交给 GPT 或后续开发者理解本项目时应优先阅读的说明。
+更完整的算法边界、故障表、公式和文件映射见 [EXPERIMENT_CONTEXT.md](code/EXPERIMENT_CONTEXT.md)。该文件是交给 GPT 或后续开发者理解本项目时应优先阅读的说明。
 
 ## 单独运行一个消融组
 
 ```matlab
+addpath(fullfile(pwd, 'code'));
 setup_project
 cfg = stage1_cusum_3f3l_config('li_style_dense');
 cfg.seeds = 23;
@@ -77,16 +89,18 @@ report = main_stage1('cusum_fgo', cfg);
 
 ## 核心入口与测试
 
-- `setup_project.m`：将当前根目录加入 MATLAB 路径。
-- `main_stage1.m`：四方法或单方法的统一入口。
-- `stage1_cusum_3f3l_config.m`：3F3L 场景、论文故障调度和备用改进配置。
-- `run_stage1_cusum_comparison.m`：生成共享随机输入并执行各估计器。
-- `run_li_style_comparison.m`：单一代表性种子入口。
-- `run_li_style_paper_experiment.m`：Monte Carlo、统计表和 MATLAB 图入口。
+- `code/setup_project.m`：将有效代码目录加入 MATLAB 路径，并返回工作区根目录。
+- `code/main_stage1.m`：四方法或单方法的统一入口。
+- `code/stage1_cusum_3f3l_config.m`：3F3L 场景、论文故障调度和备用改进配置。
+- `code/run_stage1_cusum_comparison.m`：生成共享随机输入并执行各估计器。
+- `code/run_li_style_comparison.m`：单一代表性种子入口。
+- `code/run_li_style_paper_experiment.m`：Monte Carlo、统计表和 MATLAB 图入口。
 
 运行保留的核心检查：
 
 ```matlab
+addpath(fullfile(pwd, 'code'));
+setup_project
 results = run_core_tests;
 ```
 

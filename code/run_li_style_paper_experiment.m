@@ -21,12 +21,12 @@ if nargin < 4 || isempty(profile)
 end
 if nargin < 3 || isempty(output_directory)
     if strcmpi(char(profile), 'li_style_dense_tuned')
-        output_directory = fullfile(stage1_project_root(), 'li_style_mc50_tuned_results');
+        output_directory = fullfile(stage1_project_root(), '结果', 'li_style_mc50_tuned_results');
     elseif strcmpi(char(profile), 'li_style_dense_fgo_recovered')
-        output_directory = fullfile(stage1_project_root(), ...
+        output_directory = fullfile(stage1_project_root(), '结果', ...
             'li_style_mc50_recovered_results');
     else
-        output_directory = fullfile(stage1_project_root(), 'li_style_mc50_results');
+        output_directory = fullfile(stage1_project_root(), '结果', 'li_style_mc50_results');
     end
 end
 
