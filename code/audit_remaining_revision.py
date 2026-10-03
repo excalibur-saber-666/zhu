@@ -22,7 +22,6 @@ def sha(path):
 
 def figures(output):
     from PIL import Image
-    from pypdf import PdfReader
     rows=[]
     for name in ('E1_parameter_sensitivity','E4_runtime_convergence','E5_mechanism_ablation'):
         base=output/'figures'/name
@@ -30,15 +29,15 @@ def figures(output):
             width,height=im.size; dpi=im.info['dpi']
         svg=ET.parse(base.with_suffix('.svg')).getroot()
         count=len(list(svg.iter('{http://www.w3.org/2000/svg}text')))
-        pdf=PdfReader(base.with_suffix('.pdf')); assert len(pdf.pages)==1
-        page=pdf.pages[0]; width_mm=float(page.mediabox.width)*25.4/72
-        height_mm=float(page.mediabox.height)*25.4/72
+        width_mm=float(svg.attrib['width'].removesuffix('pt'))*25.4/72
+        height_mm=float(svg.attrib['height'].removesuffix('pt'))*25.4/72
         assert abs(width_mm-180)<.1 and height_mm<=175 and count>10
         assert min(dpi)>599 and abs(width/min(dpi)*25.4-180)<.1
-        assert len(page.extract_text())>100
+        characters=sum(len(node.text or '') for node in svg.iter('{http://www.w3.org/2000/svg}text'))
+        assert characters>100
         rows.append(dict(Figure=name,PNGWidth=width,PNGHeight=height,DPI=dpi,
-            PDFWidthMM=width_mm,PDFHeightMM=height_mm,SVGTextElements=count,
-            PDFExtractedCharacters=len(page.extract_text())))
+            SVGWidthMM=width_mm,SVGHeightMM=height_mm,SVGTextElements=count,
+            SVGTextCharacters=characters))
     (output/'validation'/'figure_exports.json').write_text(
         json.dumps(dict(passed=True,figures=rows),indent=2),encoding='utf-8')
     return rows

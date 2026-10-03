@@ -21,7 +21,6 @@ def sha(path):
 def audit_figures(output=DEFAULT_OUTPUT):
     """Check actual exports, supplementing the plotting-source preflight."""
     from PIL import Image
-    from pypdf import PdfReader
     rows=[]
     for name in ('E3_state_chain','E3_recovery_failure','E3_seed_statistics',
                  'E3_healthy_maneuver','E2a_formation_size','E2b_NLOS_intensity'):
@@ -30,19 +29,18 @@ def audit_figures(output=DEFAULT_OUTPUT):
             width,height=im.size; dpi=im.info['dpi']
         svg=ET.parse(base.with_suffix('.svg')).getroot()
         text_count=len(list(svg.iter('{http://www.w3.org/2000/svg}text')))
-        pdf=PdfReader(base.with_suffix('.pdf'))
-        assert len(pdf.pages)==1 and text_count>10
-        page=pdf.pages[0]; width_mm=float(page.mediabox.width)*25.4/72
-        height_mm=float(page.mediabox.height)*25.4/72
-        selectable=len(page.extract_text())
+        width_mm=float(svg.attrib['width'].removesuffix('pt'))*25.4/72
+        height_mm=float(svg.attrib['height'].removesuffix('pt'))*25.4/72
+        selectable=sum(len(node.text or '') for node in svg.iter('{http://www.w3.org/2000/svg}text'))
+        assert text_count>10
         assert abs(width_mm-180)<.1 and height_mm<=175
         assert min(dpi)>599 and abs(width/min(dpi)*25.4-180)<.1 and selectable>100
         rows.append(dict(Figure=name,PNGWidth=width,PNGHeight=height,DPI=dpi,
-            PDFWidthMM=width_mm,PDFHeightMM=height_mm,SVGTextElements=text_count,
-            PDFExtractedCharacters=selectable))
+            SVGWidthMM=width_mm,SVGHeightMM=height_mm,SVGTextElements=text_count,
+            SVGTextCharacters=selectable))
     (output/'validation'/'figure_exports.json').write_text(
         json.dumps(dict(passed=True,figures=rows),indent=2),encoding='utf-8')
-    print('Actual PDF/SVG/PNG export checks passed for all six figures.')
+    print('Actual SVG/PNG export checks passed for all six figures.')
 
 
 def audit(output=DEFAULT_OUTPUT):

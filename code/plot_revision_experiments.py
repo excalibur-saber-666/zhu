@@ -3,7 +3,7 @@
 Figure contract: quantitative grids. State-chain panels establish what the
 online detector and admission policy actually did; aggregate panels show
 seed-level dispersion and limitations. Fixed seed 1 is illustrative only.
-PDF/SVG retain editable text; PNG is a 600 dpi companion. Default width is
+SVG retains editable text; PNG is a 600 dpi companion. Default width is
 180 mm, with 8 pt text. No time sample is treated as an independent trial.
 """
 import argparse
@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 
 plt.rcParams.update({"font.family":"sans-serif","font.sans-serif":["Arial","DejaVu Sans"],
     "font.size":8,"axes.labelsize":8,"axes.titlesize":8,"legend.fontsize":7,
-    "svg.fonttype":"none","pdf.fonttype":42,"axes.spines.top":False,
+    "svg.fonttype":"none","axes.spines.top":False,
     "axes.spines.right":False,"axes.linewidth":.7,"lines.linewidth":1.2,"legend.frameon":False})
 COLORS={"ekf":"#8C8C8C","fgo":"#597FA0","cusum_ekf":"#C6975D","cusum_fgo":"#427C71"}
 LABELS={"ekf":"EKF","fgo":"FGO","cusum_ekf":"CUSUM-EKF","cusum_fgo":"CUSUM-FGO"}
@@ -40,11 +40,10 @@ def save(fig,output,name):
     destination=output/"figures"
     destination.mkdir(parents=True,exist_ok=True)
     # Freeze one Agg layout before switching export renderers. Repeated
-    # constrained-layout passes across PDF/SVG/PNG can otherwise shift labels.
+    # constrained-layout passes across SVG/PNG can otherwise shift labels.
     fig.canvas.draw()
     fig.canvas.draw()
     fig.set_layout_engine("none")
-    fig.savefig(destination/f"{name}.pdf",facecolor="white")
     fig.savefig(destination/f"{name}.svg",facecolor="white")
     fig.savefig(destination/f"{name}.png",dpi=600,facecolor="white")
     plt.close(fig)

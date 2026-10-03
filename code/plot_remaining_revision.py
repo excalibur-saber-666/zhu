@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib.patches import Rectangle
 plt.rcParams.update({'font.family':'sans-serif','font.sans-serif':['Arial','DejaVu Sans'],
     'font.size':8,'axes.labelsize':8,'axes.titlesize':8,'legend.fontsize':7,
-    'svg.fonttype':'none','pdf.fonttype':42})
+    'svg.fonttype':'none'})
 
 
 def read(output,stage,name):
@@ -20,7 +20,6 @@ def read(output,stage,name):
 def save(fig,output,name):
     destination=output/'figures'; destination.mkdir(parents=True,exist_ok=True)
     fig.canvas.draw(); fig.canvas.draw(); fig.set_layout_engine('none')
-    fig.savefig(destination/f'{name}.pdf',facecolor='white')
     fig.savefig(destination/f'{name}.svg',facecolor='white')
     fig.savefig(destination/f'{name}.png',dpi=600,facecolor='white')
     plt.close(fig)
