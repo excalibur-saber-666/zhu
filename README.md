@@ -15,14 +15,20 @@
 
 ## 论文使用的实验
 
-当前论文图、表和 50 次 Monte Carlo 统计**只能**使用原始配置 `li_style_dense`。它包含 600 s 仿真、0.02 s IMU 更新、1 s 图优化和 13 段 3/4/6 m 的僚机--长机测距偏差，其中既有单边故障，也有不同僚机上的同时故障。
+当前论文图、表和 50 次 Monte Carlo 统计**只能**使用配置 `li_style_dense_random_nlos`。它保留原有 13 个异常时段和僚机--长机链路；每段开始时从截断双分量高斯混合模型
+
+\[
+B_s\sim0.6\mathcal N(3,0.6^2)+0.4\mathcal N(6,1.0^2),\qquad 1\le B_s\le8\ \mathrm m
+\]
+
+独立抽取一个正偏差并在段内保持不变。异常时段外不注入 NLOS 偏置，仅保留标准差 0.2 m 的正常测距噪声。同一 Monte Carlo 种子下，四种方法共享完全相同的 IMU、GPS、测距噪声和 NLOS realization。
 
 运行一组代表性试验并显示 MATLAB 图：
 
 ```matlab
 addpath(fullfile(pwd, 'code'));
 setup_project
-report = run_li_style_comparison(23, true, 'li_style_dense');
+report = run_li_style_comparison(23, true, 'li_style_dense_random_nlos');
 ```
 
 运行论文的 50 次 Monte Carlo 统计与出图：
@@ -30,10 +36,10 @@ report = run_li_style_comparison(23, true, 'li_style_dense');
 ```matlab
 addpath(fullfile(pwd, 'code'));
 setup_project
-summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
+summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense_random_nlos');
 ```
 
-第二个命令会在 `结果` 文件夹中生成本地结果目录 `li_style_mc50_results/`，其中包含 CSV、XLSX 和 MATLAB 图片；该目录已被 `.gitignore` 排除。
+第二个命令会在 `结果` 文件夹中生成本地结果目录 `li_style_mc50_random_nlos_results/`，其中包含 CSV、XLSX、MATLAB 图片和逐段 NLOS 幅值源数据；该目录已被 `.gitignore` 排除。
 
 ## 四个对照组
 
@@ -53,7 +59,7 @@ summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
 ```matlab
 addpath(fullfile(pwd, 'code'));
 setup_project
-cfg = stage1_cusum_3f3l_config('li_style_dense');
+cfg = stage1_cusum_3f3l_config('li_style_dense_random_nlos');
 cfg.seeds = 23;
 cfg.plot_position_results = true;
 
@@ -65,10 +71,11 @@ report = main_stage1('cusum_fgo', cfg);
 
 快速冒烟检查可改用 `stage1_cusum_3f3l_config('quick')`；它缩短仿真时间，不可作为论文结果。
 
-## 保留但未用于论文的改进配置
+## 保留但未用于当前论文的配置
 
-以下配置是为研究调参而保留的代码路径，**未用于当前论文的任何图、表或 50 次统计，不能与 `li_style_dense` 的结果混用**：
+以下配置用于历史复现或研究调参，**未用于当前论文的任何图、表或 50 次统计，不能与 `li_style_dense_random_nlos` 的结果混用**：
 
+- `li_style_dense`：原 13 段固定 3/4/6 m 偏差，仅用于复现旧结果。
 - `li_style_dense_tuned`：对同一僚机下所有可疑长机边进行软降权，并给 CUSUM-EKF 启用低信息预测测距替代项。
 - `li_style_dense_fgo_recovered`：在 `tuned` 基础上，当在线统计确认持续反向突变时重置 FGO 检测器的测距预测器，以避免陈旧告警长期占用健康几何。
 
@@ -105,3 +112,11 @@ results = run_core_tests;
 ```
 
 测试覆盖 CUSUM 的在线性与告警逻辑、四方法共享输入及单方法入口，以及默认关闭的 IMU 预积分变体。
+
+## 2026-10-03 论文返修实验
+
+E3→E2→E1→E4→E5 已按冻结方案完成，完整材料见 [实验结果总索引](实验结果总索引.md)。主参数 h=5、κ=0.5 保持，正式 Word 尚未修改。实验执行时按用户要求保留在本地；本次按用户后续明确要求，将实验修改提交并上传 GitHub。
+
+新增正式入口为 `run_revision_experiments`、`run_remaining_revision_experiments` 与对应配置工厂；两阶段结果分别在 `结果/2026-10-03_E3_E2_revision/` 和 `结果/2026-10-03_E1_E4_E5_revision/`，复算使用各自执行快照。新增计时与机制消融默认关闭，保留当前基准。实现、状态和验证说明见 [返修实验实现与验证](code/说明/2026-10-03_返修实验实现与验证.md)。
+
+GitHub 包含实验实现、配置、测试、统计分析、绘图、报告生成脚本及修改方案和实现说明。`结果/`、`论文/`、`资料/` 继续遵循本地文件规则；总索引内这些目录的链接需要本地实验资料。上传校验重新执行了 13 个统计测试，并确认当前 61 个 MATLAB/数据文件及 12 个分析脚本/依赖文件与实验验收快照一致；原始实验和 MATLAB 验证记录保留在本地结果目录。

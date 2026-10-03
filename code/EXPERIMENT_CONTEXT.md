@@ -24,34 +24,42 @@ e_{p,k}=\sqrt{(\hat E_k-E_k)^2+(\hat N_k-N_k)^2+(\hat U_k-U_k)^2},\qquad
 论文采用：
 
 ```matlab
-cfg = stage1_cusum_3f3l_config('li_style_dense');
+cfg = stage1_cusum_3f3l_config('li_style_dense_random_nlos');
 ```
 
-这是唯一可以用于当前论文图片、表格和 50 次 Monte Carlo 统计的 profile。它使用 600 s 仿真、`dt = 0.02` s、`graph_interval = 1` s、3 架僚机和 3 架长机；定位图的代表性种子通常为 23，统计为 `1:50`。故障模式为 `segmented_explicit_edges`，每行格式为：
+这是唯一可以用于当前论文图片、表格和 50 次 Monte Carlo 统计的 profile。它使用 600 s 仿真、`dt = 0.02` s、`graph_interval = 1` s、3 架僚机和 3 架长机；定位图的代表性种子为 23，统计种子为 `1:50`。故障模式为 `segmented_explicit_edges_random_bias`，每行格式为：
 
 ```text
-[start_s, end_s, additive_bias_m, follower, leader_global]
+[start_s, end_s, follower, leader_global]
 ```
 
-| 时段 (s) | 偏差 (m) | 故障边 |
-| --- | ---: | --- |
-| 80--92 | +3 | F1--L1 |
-| 120--135 | +4 | F2--L2 |
-| 170--185 | +3 | F3--L3 |
-| 245--262 | +4 | F1--L2 |
-| 245--262 | +6 | F2--L1 |
-| 285--302 | +6 | F3--L1 |
-| 310--326 | +4 | F2--L3 |
-| 365--380 | +3 | F1--L3 |
-| 365--380 | +4 | F3--L2 |
-| 430--447 | +6 | F2--L2 |
-| 485--500 | +3 | F1--L1 |
-| 525--545 | +4 | F3--L3 |
-| 535--552 | +6 | F2--L1 |
+| 时段 (s) | 故障边 |
+| --- | --- |
+| 80--92 | F1--L1 |
+| 120--135 | F2--L2 |
+| 170--185 | F3--L3 |
+| 245--262 | F1--L2 |
+| 245--262 | F2--L1 |
+| 285--302 | F3--L1 |
+| 310--326 | F2--L3 |
+| 365--380 | F1--L3 |
+| 365--380 | F3--L2 |
+| 430--447 | F2--L2 |
+| 485--500 | F1--L1 |
+| 525--545 | F3--L3 |
+| 535--552 | F2--L1 |
+
+每段开始时从截断双分量 GMM
+
+\[
+B_s\sim0.6\mathcal N(3,0.6^2)+0.4\mathcal N(6,1.0^2),\qquad 1\le B_s\le8\ \mathrm m
+\]
+
+独立抽取一个正偏差，段内所有 1 Hz 测距历元保持该偏差；不同种子重新抽样。注入器只在上述 13 个闭区间及指定链路上叠加 (B_s)，区间外 (b_{ij,k}=0)，仅保留 (v_{ij,k}\sim\mathcal N(0,0.2^2)) m。参考文献中的 20/30/40 m 三分量模型用于严重城市峡谷压力测试；当前 1--8 m 模型相对正常测距噪声仍达到 5--40 倍标准差，更适合本文低成本僚机先验和持续偏差检测场景。
 
 同一时段有多条故障边时，它们属于不同僚机；每一僚机在任一时刻最多有一条故障长机边，从而保留其余长机测距以执行“选择性隔离”。
 
-`li_style_dense_tuned` 和 `li_style_dense_fgo_recovered` 是保留的改进实现，目的是后续研究复核，未用于论文结果；阅读或写论文时不得把它们的数值、图片或结论与原始 `li_style_dense` 混合。
+`li_style_dense` 保留原固定 3/4/6 m 调度以复现旧结果；`li_style_dense_tuned` 和 `li_style_dense_fgo_recovered` 是备用改进实现。三者均未用于当前论文；不得把它们的数值、图片或结论与 `li_style_dense_random_nlos` 混合。
 
 ## 3. 四个公平对照组
 
@@ -68,7 +76,7 @@ cfg = stage1_cusum_3f3l_config('li_style_dense');
 
 ## 4. 论文 profile 的在线 CUSUM
 
-`li_style_dense` 明确设置 `fgo_cusum_detector_mode = 'range_predictor'`。因此 CUSUM-EKF 与 CUSUM-FGO 均调用 `compute_ekf_cusum_range_weights.m` 的独立逐边 alpha-beta 测距预测器；二者**共享检测统计，但在不同的 EKF/因子图估计器中使用权重**。它的预测不依赖 EKF 或图优化已融合的测距结果，可避免估计器反馈抵消检测残差。
+`li_style_dense_random_nlos` 明确设置 `fgo_cusum_detector_mode = 'range_predictor'`。因此 CUSUM-EKF 与 CUSUM-FGO 均调用 `compute_ekf_cusum_range_weights.m` 的独立逐边 alpha-beta 测距预测器；二者**共享检测统计，但在不同的 EKF/因子图估计器中使用权重**。它的预测不依赖 EKF 或图优化已融合的测距结果，可避免估计器反馈抵消检测残差。
 
 对每条边，预测、归一化创新和双侧折扣 CUSUM 为
 
@@ -99,7 +107,7 @@ w_k=\operatorname{clip}_{[w_{\min},1]}\!\left[
 
 其中 \(d\) 是权重死区，\(\tau\) 是创新门限。原始 profile 的默认 `per_follower_max` 策略只对同一僚机下 CUSUM 最大的可疑长机边施加软降权。CUSUM 超过开阈值并满足连续确认历元数后，`per_follower_max` 选择性隔离该僚机下 CUSUM 最大的一条报警长机边；其余健康边继续进入估计器。告警在近似正常创新连续满足释放条件后解除。
 
-`compute_signed_cusum_edge_weights.m` 是另一种基于位置先验残差的通用 CUSUM 实现；仅当 `fgo_cusum_detector_mode = 'prior_innovation'` 时使用，因而不属于 `li_style_dense` 论文 profile。
+`compute_signed_cusum_edge_weights.m` 是另一种基于位置先验残差的通用 CUSUM 实现；仅当 `fgo_cusum_detector_mode = 'prior_innovation'` 时使用，因而不属于 `li_style_dense_random_nlos` 论文 profile。
 
 ## 5. 权重如何进入 EKF 与 FGO
 
@@ -143,20 +151,20 @@ R_{ij}^{\mathrm{eff}}=\frac{\sigma_{dis}^2}{w_{ij}}+
 | `factor_graph_sliding_window_imu_preint.m` | 保留的 15 状态 IMU 预积分研究变体，默认关闭且不用于论文。 |
 | `run_li_style_paper_experiment.m` | 50 次 Monte Carlo、数据表和 MATLAB 图片。 |
 
-若后续改算法：保持四方法复用同一随机输入；不得让在线检测读取真值或故障元数据；不得把 `li_style_dense_tuned` 或 `li_style_dense_fgo_recovered` 的结果写进当前论文；也不要重新生成或提交本地结果目录、论文文档和下载文献。
+若后续改算法：保持四方法复用同一随机输入；不得让在线检测读取真值或故障元数据；不得把 `li_style_dense`、`li_style_dense_tuned` 或 `li_style_dense_fgo_recovered` 的结果写进当前论文；也不要提交本地结果目录、论文文档和下载文献。
 
 ## 7. 推荐命令
 
 ```matlab
 % 单个代表性种子和图片
 setup_project
-report = run_li_style_comparison(23, true, 'li_style_dense');
+report = run_li_style_comparison(23, true, 'li_style_dense_random_nlos');
 
 % 正式 50 次 Monte Carlo
-summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense');
+summary = run_li_style_paper_experiment(1:50, 23, [], 'li_style_dense_random_nlos');
 
 % 只跑主方法 CUSUM-FGO
-cfg = stage1_cusum_3f3l_config('li_style_dense');
+cfg = stage1_cusum_3f3l_config('li_style_dense_random_nlos');
 cfg.seeds = 23;
 cfg.plot_position_results = true;
 report = main_stage1('cusum_fgo', cfg);
