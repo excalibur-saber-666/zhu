@@ -26,12 +26,18 @@ for scenario_index = 1:numel(scenario_names)
     scenario_results.(scenario_names{scenario_index}) = repmat(template, seed_count, 1);
 end
 fault_schedules = cell(seed_count, 1);
+if cfg.revision_record_inputs
+    input_caches = cell(seed_count, 1);
+end
 
 total_runs = numel(method_names) * numel(scenario_names) * seed_count;
 run_index = 0;
 for seed_index = 1:seed_count
     seed = cfg.seeds(seed_index);
     cache = local_make_input_cache(cfg, seed);
+    if cfg.revision_record_inputs
+        input_caches{seed_index} = cache;
+    end
     fault_schedules{seed_index} = cache.fault_segments;
     for scenario_index = 1:numel(scenario_names)
         scenario_name = scenario_names{scenario_index};
@@ -66,6 +72,9 @@ report.seed_results = seed_results;
 report.aggregate = local_aggregate_four_methods(seed_results, method_names);
 report.scenario_results = scenario_results;
 report.fault_schedules = fault_schedules;
+if cfg.revision_record_inputs
+    report.input_caches = input_caches;
+end
 report.scenario_aggregates = struct();
 for scenario_index = 1:numel(scenario_names)
     name = scenario_names{scenario_index};
@@ -106,7 +115,8 @@ switch method_name
         method_cfg.cusum_apply = true;
         method_cfg.graph_mode = 'sliding_window';
         method_cfg.cusum_consensus_enable = cfg.sliding_window_cusum_consensus_enable;
-        method_cfg.sliding_window_exclude_alarmed_edges = true;
+        method_cfg.sliding_window_exclude_alarmed_edges = ...
+            ~strcmp(cfg.revision_ablation_mode,'no_isolation');
     otherwise
         error('run_stage1_cusum_comparison:InvalidFourMethodName', ...
             'Unknown four-method comparison member "%s".', method_name);
@@ -194,7 +204,15 @@ posi_w_enu_all = zeros(3, low_num);
 posi_L_all = zeros(3, cfg.high_num);
 posi_L_enu_all = zeros(3, cfg.high_num);
 for vehicle = 1:low_num
-    posi_w_all(:, vehicle) = [posi_e_all(1, vehicle); posi_n_all(1, vehicle); posi_u_all(1, vehicle)];
+    source_index = vehicle;
+    if ~isempty(cfg.revision_follower_source_indices)
+        source_index = cfg.revision_follower_source_indices(vehicle);
+    end
+    if source_index > min([size(posi_e_all, 2), size(posi_n_all, 2), size(posi_u_all, 2)])
+        error('run_stage1_cusum_comparison:FollowerSourceOutOfRange', ...
+            'Follower source column is unavailable in the initial-position data.');
+    end
+    posi_w_all(:, vehicle) = [posi_e_all(1, source_index); posi_n_all(1, source_index); posi_u_all(1, source_index)];
     posi_w_enu_all(:, vehicle) = posical_enu(posi_w_all(:, vehicle), posi_ini);
 end
 base_leader_count = 3;
@@ -269,11 +287,33 @@ last_sins_after_graph = zeros(3, low_num);
 has_last_sins_after_graph = false;
 graph_index = 0;
 current_time = 0;
+reference_atti = atti_all(:, 1);
+reference_atti_rate = atti_rate_all(:, 1);
+reference_veloB = veloB_all(:, 1);
+reference_acceB = acceB_all(:, 1);
+runtime_sins_seconds = 0;
+runtime_sins_steps = 0;
 
 for step = 1:cache.step_count
     current_time = step * cfg.dt;
     old_veloB_all = veloB_all;
     old_atti_all = atti_all;
+    if cfg.revision_relative_maneuver_enable
+        [~, reference_atti, reference_atti_rate, reference_veloB, reference_acceB] = ...
+            trace(current_time - cfg.dt, cfg.dt, reference_atti, ...
+            reference_atti_rate, reference_veloB, reference_acceB);
+        [atti_all, atti_rate_all, veloB_all, acceB_all] = ...
+            revision_relative_motion(current_time, reference_atti, ...
+            reference_atti_rate, reference_veloB, reference_acceB, cfg);
+        Wibb_all = zeros(3, low_num);
+        Fb_all = zeros(3, low_num);
+        for vehicle = 1:low_num
+            [Wibb_all(:, vehicle), Fb_all(:, vehicle)] = IMUout(cfg.dt, ...
+                posi_w_enu_all(:, vehicle), atti_all(:, vehicle), ...
+                atti_rate_all(:, vehicle), veloB_all(:, vehicle), ...
+                acceB_all(:, vehicle), old_veloB_all(:, vehicle), old_atti_all(:, vehicle));
+        end
+    else
     [~, atti_all(:, 1), atti_rate_all(:, 1), veloB_all(:, 1), acceB_all(:, 1)] = ...
         trace(current_time - cfg.dt, cfg.dt, atti_all(:, 1), atti_rate_all(:, 1), veloB_all(:, 1), acceB_all(:, 1));
     velo_all(:, 1) = veloN0(atti_all(:, 1), veloB_all(:, 1));
@@ -286,6 +326,7 @@ for step = 1:cache.step_count
         veloB_all(:, destination) = veloB_all(:, 1);
         acceB_all(:, destination) = acceB_all(:, 1);
         velo_all(:, destination) = velo_all(:, 1);
+    end
     end
     for vehicle = 1:cfg.uav_num
         if vehicle <= low_num
@@ -300,12 +341,24 @@ for step = 1:cache.step_count
     gyro_r = cache.imu_gyro_r(:, :, step + 1);
     gyro_wg = cache.imu_gyro_wg(:, :, step + 1);
     acc_r = cache.imu_acc_r(:, :, step + 1);
+    if cfg.revision_runtime_enable
+        runtime_step_sins_seconds = 0;
+    end
     Fb_noise_all = zeros(3, low_num);
     for vehicle = 1:low_num
+        if cfg.revision_relative_maneuver_enable
+            Wibb = Wibb_all(:, vehicle);
+            Fb = Fb_all(:, vehicle);
+        end
         Wibb_noise = Wibb + gyro_b(:, vehicle) / 0.01745329252 + ...
             gyro_r(:, vehicle) / 0.01745329252 + gyro_wg(:, vehicle) / 0.01745329252;
         Fb_noise = Fb + acc_r(:, vehicle);
         Fb_noise_all(:, vehicle) = Fb_noise;
+        if cfg.revision_runtime_enable
+            % Received IMU packet is now available: do not charge the
+            % synthetic truth/noise injection to the online SINS budget.
+            sins_timer = tic;
+        end
         gyro_for_sins_deg_s = Wibb_noise - gyro_modi_all(:, vehicle) / 0.01745329252;
         acc_for_sins_mps2 = Fb_noise - acc_modi_all(:, vehicle);
         if imu_preint_active
@@ -322,12 +375,27 @@ for step = 1:cache.step_count
         veloN_all(:, vehicle) = velo_cal(cfg.dt, acc_for_sins_mps2, ...
             attiN_all(:, vehicle), veloN_all(:, vehicle), posiN_w_all(:, vehicle));
         posiN_w_all(:, vehicle) = posi_cal(cfg.dt, veloN_all(:, vehicle), posiN_w_all(:, vehicle));
+        if cfg.revision_runtime_enable
+            runtime_step_sins_seconds = runtime_step_sins_seconds + toc(sins_timer);
+        end
+    end
+
+    if cfg.revision_runtime_enable
+        runtime_sins_seconds = runtime_sins_seconds + runtime_step_sins_seconds;
+        runtime_sins_steps = runtime_sins_steps + 1;
     end
 
     if mod(step, cache.graph_stride) == 0
         graph_index = graph_index + 1;
+        if cfg.revision_runtime_enable
+            online_keyframe_timer = tic;
+            packet_timer = tic;
+        end
         [posiG_w_all, posiG_L] = local_cached_gps_measurements( ...
             posi_w_enu_all, posi_L_enu_all, cache, graph_index);
+        if cfg.revision_runtime_enable
+            gps_packet_simulation_seconds = toc(packet_timer);
+        end
         % The preceding key frame has already injected its estimated error
         % into the SINS nominal state.  Start this error-state propagation
         % from zero so that position, velocity and attitude corrections are
@@ -360,6 +428,9 @@ for step = 1:cache.step_count
             node_covariances_prior(:, :, vehicle) = diag([0.2, 0.2, 0.5].^2);
         end
 
+        if cfg.revision_runtime_enable
+            algorithm_timer = tic;
+        end
         if strcmp(estimator_mode, 'ekf')
             % Inject the GPS update before processing cooperative ranges.
             % The range Jacobian is therefore linearized around the same
@@ -385,6 +456,9 @@ for step = 1:cache.step_count
             end
         end
 
+        if cfg.revision_runtime_enable
+            packet_timer = tic;
+        end
         [posi_w_all, posi_L_all, dis_true] = distance_cal( ...
             posi_w_enu_all, posi_L_enu_all, posi_ini, cfg.uav_num, cfg.high_num);
         [dis_measure, uav_link_num] = local_cached_pseudorange( ...
@@ -392,6 +466,9 @@ for step = 1:cache.step_count
         dis_measure = local_inject_fault(dis_measure, current_time, cfg);
         range_error_history(graph_index, :, :) = reshape( ...
             dis_measure - dis_true, [1, low_num, cfg.uav_num]);
+        if cfg.revision_runtime_enable
+            range_packet_simulation_seconds = toc(packet_timer);
+        end
 
         posi_w_graph = zeros(3, low_num);
         posi_L_graph = zeros(3, cfg.high_num);
@@ -424,6 +501,11 @@ for step = 1:cache.step_count
                 edges, node_positions_prior, node_covariances_prior, cfg, cusum_state, current_time);
         end
 
+        if strcmp(cfg.revision_ablation_mode,'no_soft_weighting')
+            detail.soft_weight_before_ablation = weights;
+            weights(:) = 1;
+            detail.final_weight = weights;
+        end
         admitted_edge_mask = local_window_admission_mask(edges, detail, cfg);
         current_entry = local_empty_window_entry(low_num, cfg.uav_num);
         imu_state_diagnostics = local_empty_imu_state_diagnostics(low_num);
@@ -532,9 +614,29 @@ for step = 1:cache.step_count
             last_sins_after_graph(:, vehicle) = posical_xyz(posiN_w_all(:, vehicle), posi_ini);
         end
         has_last_sins_after_graph = true;
+        if cfg.revision_runtime_enable
+            % Stop before history/reporting. Offline truth/sensor generation
+            % is excluded, while common online propagation remains explicit.
+            algorithm_seconds = toc(algorithm_timer) - range_packet_simulation_seconds;
+            keyframe_seconds = toc(online_keyframe_timer) - ...
+                gps_packet_simulation_seconds - range_packet_simulation_seconds;
+            history(graph_index).algorithm_specific_seconds = algorithm_seconds;
+            history(graph_index).online_keyframe_seconds = keyframe_seconds;
+            history(graph_index).sins_interval_seconds = runtime_sins_seconds;
+            history(graph_index).end_to_end_online_seconds = runtime_sins_seconds + keyframe_seconds;
+            history(graph_index).sins_interval_steps = runtime_sins_steps;
+            history(graph_index).offline_packet_simulation_seconds = ...
+                gps_packet_simulation_seconds + range_packet_simulation_seconds;
+            runtime_sins_seconds = 0;
+            runtime_sins_steps = 0;
+        end
         history(graph_index).time = current_time;
         history(graph_index).pairs = detail.global_pairs;
         history(graph_index).detail = detail;
+        if cfg.revision_record_inputs
+            history(graph_index).true_range = dis_true;
+            history(graph_index).measured_range = dis_measure;
+        end
         history(graph_index).edge_count = numel(edges);
         history(graph_index).admitted_range_pairs = detail.global_pairs(admitted_edge_mask, :);
         history(graph_index).excluded_range_pairs = detail.global_pairs(~admitted_edge_mask, :);
@@ -722,44 +824,80 @@ for segment_index = 1:numel(segments)
     if current_time < segment.start || current_time > segment.end
         continue;
     end
+    injected_bias = local_fault_bias_at_time(segment, current_time, cfg.graph_interval);
     fault_key = sort(segment.edge(:)');
     if fault_key(1) <= low_num
         source = fault_key(1);
         target = fault_key(2);
-        dis_measure(source, target) = dis_measure(source, target) + segment.bias;
+        dis_measure(source, target) = dis_measure(source, target) + injected_bias;
     elseif fault_key(2) <= low_num
         source = fault_key(2);
         target = fault_key(1);
-        dis_measure(source, target) = dis_measure(source, target) + segment.bias;
+        dis_measure(source, target) = dis_measure(source, target) + injected_bias;
     end
 end
 end
 
+function injected_bias = local_fault_bias_at_time(segment, current_time, graph_interval)
+if isempty(segment.bias_samples)
+    injected_bias = segment.bias;
+    return;
+end
+[time_error, sample_index] = min(abs(segment.bias_sample_times - current_time));
+tolerance = max(1e-9, 1e-7 * graph_interval);
+if isempty(sample_index) || time_error > tolerance
+    error('run_stage1_cusum_comparison:MissingRandomFaultSample', ...
+        ['No cached stochastic NLOS sample matches the active range epoch ', ...
+        'at t=%.12g s.'], current_time);
+end
+injected_bias = segment.bias_samples(sample_index);
+end
+
 function segments = local_resolve_fault_segments(cfg, seed)
-segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
-    'edge', [NaN, NaN]), 0, 1);
+segments = local_empty_fault_segments(0);
 if ~cfg.fault_enable
     return;
 end
 
 mode = lower(char(cfg.fault_mode));
 if strcmp(mode, 'single')
-    segments(1, 1) = struct('start', cfg.fault_start, 'end', cfg.fault_end, ...
-        'bias', cfg.fault_bias, 'edge', sort(cfg.fault_edge(:)'));
+    segments = local_empty_fault_segments(1);
+    segments(1) = local_fixed_fault_segment(cfg.fault_start, cfg.fault_end, ...
+        cfg.fault_bias, cfg.fault_edge);
     return;
 end
 
 specification = cfg.fault_segments;
 low_num = cfg.uav_num - cfg.high_num;
 if strcmp(mode, 'segmented_explicit_edges')
-    segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
-        'edge', [NaN, NaN]), size(specification, 1), 1);
+    segments = local_empty_fault_segments(size(specification, 1));
     for segment_index = 1:size(specification, 1)
-        segments(segment_index) = struct( ...
-            'start', specification(segment_index, 1), ...
-            'end', specification(segment_index, 2), ...
-            'bias', specification(segment_index, 3), ...
-            'edge', sort(specification(segment_index, 4:5)));
+        segments(segment_index) = local_fixed_fault_segment( ...
+            specification(segment_index, 1), specification(segment_index, 2), ...
+            specification(segment_index, 3), specification(segment_index, 4:5));
+    end
+    return;
+end
+if strcmp(mode, 'segmented_explicit_edges_random_bias')
+    old_rng = rng;
+    cleanup = onCleanup(@() rng(old_rng)); %#ok<NASGU>
+    fault_seed = mod(round(double(seed)) + round(cfg.nlos_gmm_seed_offset), 2^32);
+    rng(fault_seed, 'twister');
+    segments = local_empty_fault_segments(size(specification, 1));
+    draw_indices = cfg.revision_nlos_draw_indices;
+    if ~isempty(draw_indices)
+        master_biases = local_sample_truncated_gmm(max(draw_indices), cfg);
+    end
+    for segment_index = 1:size(specification, 1)
+        if isempty(draw_indices)
+            segment_bias = local_sample_truncated_gmm(1, cfg);
+        else
+            segment_bias = master_biases(draw_indices(segment_index));
+        end
+        segments(segment_index) = local_random_fault_segment( ...
+            specification(segment_index, 1), specification(segment_index, 2), ...
+            specification(segment_index, 3:4), cfg, ...
+            cfg.revision_nlos_amplitude_scale * segment_bias);
     end
     return;
 end
@@ -786,31 +924,100 @@ else
     selected = randi(size(candidates, 1), size(specification, 1), 1);
 end
 
-segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
-    'edge', [NaN, NaN]), size(specification, 1), 1);
+segments = local_empty_fault_segments(size(specification, 1));
 for segment_index = 1:size(specification, 1)
-    segments(segment_index) = struct( ...
-        'start', specification(segment_index, 1), ...
-        'end', specification(segment_index, 2), ...
-        'bias', specification(segment_index, 3), ...
-        'edge', candidates(selected(segment_index), :));
+    segments(segment_index) = local_fixed_fault_segment( ...
+        specification(segment_index, 1), specification(segment_index, 2), ...
+        specification(segment_index, 3), candidates(selected(segment_index), :));
 end
 end
 
 function segments = local_active_fault_segments(cfg)
-segments = repmat(struct('start', NaN, 'end', NaN, 'bias', NaN, ...
-    'edge', [NaN, NaN]), 0, 1);
+segments = local_empty_fault_segments(0);
 if ~cfg.fault_enable
     return;
 end
 if isfield(cfg, 'resolved_fault_segments')
     segments = cfg.resolved_fault_segments;
 elseif strcmpi(cfg.fault_mode, 'single')
-    segments(1, 1) = struct('start', cfg.fault_start, 'end', cfg.fault_end, ...
-        'bias', cfg.fault_bias, 'edge', sort(cfg.fault_edge(:)'));
+    segments = local_empty_fault_segments(1);
+    segments(1) = local_fixed_fault_segment(cfg.fault_start, cfg.fault_end, ...
+        cfg.fault_bias, cfg.fault_edge);
 else
     error('run_stage1_cusum_comparison:UnresolvedFaultSegments', ...
-        'Segmented random fault edges must be resolved once from the experiment seed.');
+        'Segmented fault biases and/or edges must be resolved once from the experiment seed.');
+end
+end
+
+function segments = local_empty_fault_segments(count)
+template = struct('start', NaN, 'end', NaN, 'bias', NaN, ...
+    'edge', [NaN, NaN], 'bias_model', 'fixed', 'bias_mean', NaN, ...
+    'bias_std', NaN, 'bias_min', NaN, 'bias_max', NaN, ...
+    'bias_sample_times', zeros(0, 1), 'bias_samples', zeros(0, 1));
+segments = repmat(template, count, 1);
+end
+
+function segment = local_fixed_fault_segment(start_time, end_time, bias, edge)
+segment = local_empty_fault_segments(1);
+segment.start = start_time;
+segment.end = end_time;
+segment.bias = bias;
+segment.edge = sort(edge(:)');
+segment.bias_model = 'fixed';
+segment.bias_mean = bias;
+segment.bias_std = 0;
+segment.bias_min = bias;
+segment.bias_max = bias;
+end
+
+function segment = local_random_fault_segment(start_time, end_time, edge, cfg, segment_bias)
+first_epoch = max(1, ceil((start_time - 1e-9) / cfg.graph_interval));
+last_epoch = floor((end_time + 1e-9) / cfg.graph_interval);
+bias_sample_times = (first_epoch:last_epoch)' * cfg.graph_interval;
+if isempty(bias_sample_times)
+    error('run_stage1_cusum_comparison:EmptyRandomFaultWindow', ...
+        'A stochastic NLOS interval does not contain any range-update epoch.');
+end
+bias_samples = repmat(segment_bias, numel(bias_sample_times), 1);
+segment = local_empty_fault_segments(1);
+segment.start = start_time;
+segment.end = end_time;
+segment.bias = mean(bias_samples);
+segment.edge = sort(edge(:)');
+segment.bias_model = 'segment_truncated_gmm';
+segment.bias_mean = mean(bias_samples);
+segment.bias_std = std(bias_samples);
+segment.bias_min = min(bias_samples);
+segment.bias_max = max(bias_samples);
+segment.bias_sample_times = bias_sample_times;
+segment.bias_samples = bias_samples;
+end
+
+function samples = local_sample_truncated_gmm(sample_count, cfg)
+weights = cfg.nlos_gmm_weights(:);
+weights = weights / sum(weights);
+cumulative_weights = cumsum(weights);
+means = cfg.nlos_gmm_means_m(:);
+stds = cfg.nlos_gmm_stds_m(:);
+lower_bound = cfg.nlos_gmm_bounds_m(1);
+upper_bound = cfg.nlos_gmm_bounds_m(2);
+samples = zeros(sample_count, 1);
+for sample_index = 1:sample_count
+    component = find(rand <= cumulative_weights, 1, 'first');
+    accepted = false;
+    for attempt = 1:10000
+        candidate = means(component) + stds(component) * randn;
+        if candidate >= lower_bound && candidate <= upper_bound
+            samples(sample_index) = candidate;
+            accepted = true;
+            break;
+        end
+    end
+    if ~accepted
+        error('run_stage1_cusum_comparison:RandomFaultSamplingFailed', ...
+            ['Unable to draw an NLOS bias inside the configured bounds. ', ...
+            'Check the mixture means, standard deviations, and bounds.']);
+    end
 end
 end
 
@@ -1345,6 +1552,12 @@ end
 
 function history = local_empty_history()
 history.time = NaN;
+history.algorithm_specific_seconds = NaN;
+history.online_keyframe_seconds = NaN;
+history.sins_interval_seconds = NaN;
+history.end_to_end_online_seconds = NaN;
+history.sins_interval_steps = NaN;
+history.offline_packet_simulation_seconds = NaN;
 history.pairs = zeros(0, 2);
 history.detail = struct();
 history.edge_count = 0;
@@ -1898,9 +2111,12 @@ end
 function local_validate_experiment_config(cfg)
 low_num = cfg.uav_num - cfg.high_num;
 if cfg.uav_num ~= 6 || cfg.high_num ~= 3 || low_num ~= 3
+    if ~(cfg.revision_experiment_enable && cfg.high_num == 3 && ismember(low_num, [2, 5]))
     error('run_stage1_cusum_comparison:UnsupportedScenario', ...
-        'The streamlined runner supports only the 3-follower/3-leader scenario.');
+        'Other formation sizes require the opt-in 2F3L/5F3L revision configuration.');
+    end
 end
+revision_validate_config(cfg);
 if ~isscalar(cfg.include_healthy_scenario) || ...
         (~islogical(cfg.include_healthy_scenario) && ...
         ~ismember(cfg.include_healthy_scenario, [0, 1]))
@@ -1940,15 +2156,17 @@ if abs(cfg.sigma_dis - 0.2) > eps
 end
 if ~ischar(cfg.fault_mode) && ~isstring(cfg.fault_mode)
     error('run_stage1_cusum_comparison:InvalidFaultMode', ...
-        ['fault_mode must be ''single'', ''segmented_random_edge'', or ', ...
-        '''segmented_explicit_edges''.']);
+        ['fault_mode must be ''single'', ''segmented_random_edge'', ', ...
+        '''segmented_explicit_edges'', or ', ...
+        '''segmented_explicit_edges_random_bias''.']);
 end
 fault_mode = lower(char(cfg.fault_mode));
 if ~any(strcmp(fault_mode, {'single', 'segmented_random_edge', ...
-        'segmented_explicit_edges'}))
+        'segmented_explicit_edges', 'segmented_explicit_edges_random_bias'}))
     error('run_stage1_cusum_comparison:InvalidFaultMode', ...
-        ['fault_mode must be ''single'', ''segmented_random_edge'', or ', ...
-        '''segmented_explicit_edges''.']);
+        ['fault_mode must be ''single'', ''segmented_random_edge'', ', ...
+        '''segmented_explicit_edges'', or ', ...
+        '''segmented_explicit_edges_random_bias''.']);
 end
 if strcmp(fault_mode, 'single')
     if numel(cfg.fault_edge) ~= 2 || any(cfg.fault_edge < 1) || ...
@@ -1962,16 +2180,24 @@ if strcmp(fault_mode, 'single')
             'For an enabled fault, require 0 <= fault_start < fault_end <= t_stop.');
     end
 else
-    explicit_edges = strcmp(fault_mode, 'segmented_explicit_edges');
-    expected_columns = 3 + 2 * explicit_edges;
+    random_bias = strcmp(fault_mode, 'segmented_explicit_edges_random_bias');
+    explicit_edges = strcmp(fault_mode, 'segmented_explicit_edges') || random_bias;
+    if random_bias
+        expected_columns = 4;
+    else
+        expected_columns = 3 + 2 * explicit_edges;
+    end
     if ~isnumeric(cfg.fault_segments) || ...
             size(cfg.fault_segments, 2) ~= expected_columns || ...
             isempty(cfg.fault_segments) || any(~isfinite(cfg.fault_segments(:))) || ...
             any(cfg.fault_segments(:, 1) < 0) || ...
             any(cfg.fault_segments(:, 2) <= cfg.fault_segments(:, 1)) || ...
             any(cfg.fault_segments(:, 2) > cfg.t_stop) || ...
-            any(cfg.fault_segments(:, 3) == 0)
-        if explicit_edges
+            (~random_bias && any(cfg.fault_segments(:, 3) == 0))
+        if random_bias
+            description = ['fault_segments must be rows [start, end, follower, ', ...
+                'leader_global] inside the simulation interval.'];
+        elseif explicit_edges
             description = ['fault_segments must be rows [start, end, bias, ', ...
                 'follower, leader_global] inside the simulation interval.'];
         else
@@ -1981,8 +2207,13 @@ else
         error('run_stage1_cusum_comparison:InvalidFaultSegments', description);
     end
     if explicit_edges
-        followers = cfg.fault_segments(:, 4);
-        leaders = cfg.fault_segments(:, 5);
+        if random_bias
+            followers = cfg.fault_segments(:, 3);
+            leaders = cfg.fault_segments(:, 4);
+        else
+            followers = cfg.fault_segments(:, 4);
+            leaders = cfg.fault_segments(:, 5);
+        end
         if any(followers ~= floor(followers)) || ...
                 any(leaders ~= floor(leaders)) || any(followers < 1) || ...
                 any(followers > low_num) || any(leaders <= low_num) || ...
@@ -1990,6 +2221,9 @@ else
             error('run_stage1_cusum_comparison:InvalidExplicitFaultEdge', ...
                 ['Explicit fault rows must use a valid follower index and a ', ...
                 'valid global leader index.']);
+        end
+        if random_bias
+            local_validate_nlos_gmm_config(cfg);
         end
     elseif any(cfg.fault_segments(2:end, 1) <= cfg.fault_segments(1:end-1, 2))
         error('run_stage1_cusum_comparison:InvalidFaultSegments', ...
@@ -2159,4 +2393,41 @@ if isfield(cfg, 'plot_follower_indices') && ~isempty(cfg.plot_follower_indices) 
 end
 local_graph_mode(cfg);
 local_estimator_mode(cfg);
+end
+
+function local_validate_nlos_gmm_config(cfg)
+required = {'nlos_gmm_weights', 'nlos_gmm_means_m', 'nlos_gmm_stds_m', ...
+    'nlos_gmm_bounds_m', 'nlos_gmm_seed_offset'};
+for field_index = 1:numel(required)
+    if ~isfield(cfg, required{field_index})
+        error('run_stage1_cusum_comparison:MissingNlosGmmParameter', ...
+            'Missing stochastic NLOS parameter cfg.%s.', required{field_index});
+    end
+end
+weights = cfg.nlos_gmm_weights(:);
+means = cfg.nlos_gmm_means_m(:);
+stds = cfg.nlos_gmm_stds_m(:);
+bounds = cfg.nlos_gmm_bounds_m(:);
+if numel(weights) < 1 || numel(weights) ~= numel(means) || ...
+        numel(weights) ~= numel(stds) || any(~isfinite(weights)) || ...
+        any(weights <= 0) || abs(sum(weights) - 1) > 1e-10 || ...
+        any(~isfinite(means)) || any(~isfinite(stds)) || any(stds <= 0)
+    error('run_stage1_cusum_comparison:InvalidNlosGmm', ...
+        ['NLOS GMM weights, means, and standard deviations must have equal ', ...
+        'length; weights must be positive and sum to one; standard ', ...
+        'deviations must be positive.']);
+end
+if numel(bounds) ~= 2 || any(~isfinite(bounds)) || bounds(1) < 0 || ...
+        bounds(2) <= bounds(1) || any(means <= bounds(1)) || ...
+        any(means >= bounds(2))
+    error('run_stage1_cusum_comparison:InvalidNlosGmmBounds', ...
+        ['nlos_gmm_bounds_m must be [lower, upper] with 0 <= lower < ', ...
+        'means < upper.']);
+end
+seed_offset = cfg.nlos_gmm_seed_offset;
+if ~isscalar(seed_offset) || ~isfinite(seed_offset) || seed_offset < 0 || ...
+        seed_offset ~= floor(seed_offset)
+    error('run_stage1_cusum_comparison:InvalidNlosGmmSeedOffset', ...
+        'nlos_gmm_seed_offset must be a non-negative integer scalar.');
+end
 end

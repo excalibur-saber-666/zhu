@@ -35,9 +35,16 @@ for seed_index = 1:seed_count
     end
 end
 
+[segment_bias_mean_m, segment_bias_std_m, segment_bias_min_m, ...
+    segment_bias_max_m] = local_segment_bias_statistics( ...
+    fault_schedule_table, segment_count);
+
 row_count = method_count * segment_count;
 Segment = zeros(row_count, 1);
-Bias_m = zeros(row_count, 1);
+BiasMean_m = zeros(row_count, 1);
+BiasStd_m = zeros(row_count, 1);
+BiasMin_m = zeros(row_count, 1);
+BiasMax_m = zeros(row_count, 1);
 Duration_s = zeros(row_count, 1);
 Method = strings(row_count, 1);
 TargetRMSEMean_m = nan(row_count, 1);
@@ -50,7 +57,10 @@ for segment_index = 1:segment_count
         row = row + 1;
         values = per_seed_target_rmse(:, method_index, segment_index);
         Segment(row) = segment_index;
-        Bias_m(row) = cfg.fault_segments(segment_index, 3);
+        BiasMean_m(row) = segment_bias_mean_m(segment_index);
+        BiasStd_m(row) = segment_bias_std_m(segment_index);
+        BiasMin_m(row) = segment_bias_min_m(segment_index);
+        BiasMax_m(row) = segment_bias_max_m(segment_index);
         Duration_s(row) = cfg.fault_segments(segment_index, 2) - ...
             cfg.fault_segments(segment_index, 1);
         Method(row) = method_labels{method_index};
@@ -60,14 +70,18 @@ for segment_index = 1:segment_count
         TargetRMSEMaximum_m(row) = max(values);
     end
 end
-performance_table = table(Segment, Bias_m, Duration_s, Method, ...
+performance_table = table(Segment, BiasMean_m, BiasStd_m, BiasMin_m, ...
+    BiasMax_m, Duration_s, Method, ...
     TargetRMSEMean_m, TargetRMSEStd_m, TargetRMSEMedian_m, ...
     TargetRMSEMaximum_m);
 
 pairs = [1, 3; 2, 4];
 row_count = size(pairs, 1) * segment_count;
 Segment = zeros(row_count, 1);
-Bias_m = zeros(row_count, 1);
+BiasMean_m = zeros(row_count, 1);
+BiasStd_m = zeros(row_count, 1);
+BiasMin_m = zeros(row_count, 1);
+BiasMax_m = zeros(row_count, 1);
 Duration_s = zeros(row_count, 1);
 Comparison = strings(row_count, 1);
 BaselineRMSE_m = nan(row_count, 1);
@@ -83,7 +97,10 @@ for segment_index = 1:segment_count
         baseline = per_seed_target_rmse(:, baseline_index, segment_index);
         cusum = per_seed_target_rmse(:, cusum_index, segment_index);
         Segment(row) = segment_index;
-        Bias_m(row) = cfg.fault_segments(segment_index, 3);
+        BiasMean_m(row) = segment_bias_mean_m(segment_index);
+        BiasStd_m(row) = segment_bias_std_m(segment_index);
+        BiasMin_m(row) = segment_bias_min_m(segment_index);
+        BiasMax_m(row) = segment_bias_max_m(segment_index);
         Duration_s(row) = cfg.fault_segments(segment_index, 2) - ...
             cfg.fault_segments(segment_index, 1);
         Comparison(row) = string(method_labels{baseline_index}) + ...
@@ -96,6 +113,37 @@ for segment_index = 1:segment_count
         WinRate_pct(row) = 100 * mean(cusum < baseline);
     end
 end
-improvement_table = table(Segment, Bias_m, Duration_s, Comparison, ...
+improvement_table = table(Segment, BiasMean_m, BiasStd_m, BiasMin_m, ...
+    BiasMax_m, Duration_s, Comparison, ...
     BaselineRMSE_m, CUSUMRMSE_m, Improvement_pct, WinRate_pct);
+end
+
+function [bias_mean_m, bias_std_m, bias_min_m, bias_max_m] = ...
+        local_segment_bias_statistics(fault_schedule_table, segment_count)
+bias_mean_m = nan(segment_count, 1);
+bias_std_m = nan(segment_count, 1);
+bias_min_m = nan(segment_count, 1);
+bias_max_m = nan(segment_count, 1);
+for segment_index = 1:segment_count
+    rows = fault_schedule_table.Segment == segment_index;
+    counts = fault_schedule_table.BiasSampleCount(rows);
+    means = fault_schedule_table.Bias_m(rows);
+    stds = fault_schedule_table.BiasStd_m(rows);
+    total_count = sum(counts);
+    if total_count < 1
+        error('compute_li_style_segment_performance:MissingBiasSamples', ...
+            'Each fault segment must contain at least one injected range epoch.');
+    end
+    bias_mean_m(segment_index) = sum(counts .* means) / total_count;
+    sum_squares = sum(max(0, counts - 1) .* stds.^2 + counts .* means.^2);
+    if total_count > 1
+        pooled_variance = (sum_squares - total_count * ...
+            bias_mean_m(segment_index)^2) / (total_count - 1);
+        bias_std_m(segment_index) = sqrt(max(0, pooled_variance));
+    else
+        bias_std_m(segment_index) = 0;
+    end
+    bias_min_m(segment_index) = min(fault_schedule_table.BiasMin_m(rows));
+    bias_max_m(segment_index) = max(fault_schedule_table.BiasMax_m(rows));
+end
 end

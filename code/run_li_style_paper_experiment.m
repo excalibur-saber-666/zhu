@@ -5,8 +5,11 @@ function summary = run_li_style_paper_experiment(seed_list, representative_seed,
 %   keeps compact source data, writes CSV/XLSX statistics, and generates
 %   MATLAB figures analogous to Li's simulation trajectory, pseudorange
 %   error, positioning-error, and positioning-error CDF figures.  PROFILE
-%   defaults to 'li_style_dense'; 'li_style_dense_tuned' is an opt-in
-%   CUSUM-FGO soft-weighting variant, while
+%   defaults to the preserved fixed-bias baseline 'li_style_dense'.  The
+%   current paper passes 'li_style_dense_random_nlos' explicitly to draw a
+%   reproducible positive NLOS bias for every active segment from a truncated
+%   GMM; 'li_style_dense' retains the fixed 3/4/6 m schedule;
+%   'li_style_dense_tuned' is an opt-in CUSUM-FGO soft-weighting variant, while
 %   'li_style_dense_fgo_recovered' additionally enables online predictor
 %   recovery for a cleared step fault.
 
@@ -20,7 +23,10 @@ if nargin < 4 || isempty(profile)
     profile = 'li_style_dense';
 end
 if nargin < 3 || isempty(output_directory)
-    if strcmpi(char(profile), 'li_style_dense_tuned')
+    if strcmpi(char(profile), 'li_style_dense_random_nlos')
+        output_directory = fullfile(stage1_project_root(), '结果', ...
+            'li_style_mc50_random_nlos_results');
+    elseif strcmpi(char(profile), 'li_style_dense_tuned')
         output_directory = fullfile(stage1_project_root(), '结果', 'li_style_mc50_tuned_results');
     elseif strcmpi(char(profile), 'li_style_dense_fgo_recovered')
         output_directory = fullfile(stage1_project_root(), '结果', ...
@@ -68,9 +74,14 @@ schedule_segment = zeros(size(schedule_seed));
 schedule_start_s = zeros(size(schedule_seed));
 schedule_end_s = zeros(size(schedule_seed));
 schedule_bias_m = zeros(size(schedule_seed));
+schedule_bias_std_m = zeros(size(schedule_seed));
+schedule_bias_min_m = zeros(size(schedule_seed));
+schedule_bias_max_m = zeros(size(schedule_seed));
+schedule_bias_sample_count = zeros(size(schedule_seed));
 schedule_follower = zeros(size(schedule_seed));
 schedule_leader = zeros(size(schedule_seed));
 representative = struct([]);
+nlos_bias_sample_tables = cell(seed_count, 1);
 
 experiment_timer = tic;
 for seed_index = 1:seed_count
@@ -108,10 +119,24 @@ for seed_index = 1:seed_count
         schedule_segment(schedule_rows(segment_index)) = segment_index;
         schedule_start_s(schedule_rows(segment_index)) = segment.start;
         schedule_end_s(schedule_rows(segment_index)) = segment.end;
-        schedule_bias_m(schedule_rows(segment_index)) = segment.bias;
+        schedule_bias_m(schedule_rows(segment_index)) = segment.bias_mean;
+        schedule_bias_std_m(schedule_rows(segment_index)) = segment.bias_std;
+        schedule_bias_min_m(schedule_rows(segment_index)) = segment.bias_min;
+        schedule_bias_max_m(schedule_rows(segment_index)) = segment.bias_max;
+        if isempty(segment.bias_samples)
+            first_epoch = max(1, ceil((segment.start - 1e-9) / cfg.graph_interval));
+            last_epoch = floor((segment.end + 1e-9) / cfg.graph_interval);
+            schedule_bias_sample_count(schedule_rows(segment_index)) = ...
+                max(0, last_epoch - first_epoch + 1);
+        else
+            schedule_bias_sample_count(schedule_rows(segment_index)) = ...
+                numel(segment.bias_samples);
+        end
         schedule_follower(schedule_rows(segment_index)) = segment.edge(1);
         schedule_leader(schedule_rows(segment_index)) = segment.edge(2) - low_num;
     end
+    nlos_bias_sample_tables{seed_index} = local_nlos_bias_sample_table( ...
+        seed, segments, low_num, cfg.graph_interval);
 
     if seed == representative_seed
         representative = local_compact_representative(seed_report, method_names, method_labels);
@@ -131,10 +156,13 @@ if isempty(representative)
 end
 
 fault_schedule_table = table(schedule_seed, schedule_segment, ...
-    schedule_start_s, schedule_end_s, schedule_bias_m, ...
+    schedule_start_s, schedule_end_s, schedule_bias_m, schedule_bias_std_m, ...
+    schedule_bias_min_m, schedule_bias_max_m, schedule_bias_sample_count, ...
     schedule_follower, schedule_leader, ...
     'VariableNames', {'Seed', 'Segment', 'Start_s', 'End_s', ...
-    'Bias_m', 'Follower', 'Leader'});
+    'Bias_m', 'BiasStd_m', 'BiasMin_m', 'BiasMax_m', 'BiasSampleCount', ...
+    'Follower', 'Leader'});
+nlos_bias_sample_table = vertcat(nlos_bias_sample_tables{:});
 performance_table = local_performance_table(pooled_error_3d, ...
     per_seed_rmse_3d, per_seed_fault_rmse_3d, method_labels);
 improvement_table = local_improvement_table(per_seed_rmse_3d, ...
@@ -177,6 +205,7 @@ summary.performance_table = performance_table;
 summary.improvement_table = improvement_table;
 summary.per_seed_table = per_seed_table;
 summary.fault_schedule_table = fault_schedule_table;
+summary.nlos_bias_sample_table = nlos_bias_sample_table;
 summary.segment_performance_table = segment_performance_table;
 summary.segment_improvement_table = segment_improvement_table;
 summary.elapsed_seconds = toc(experiment_timer);
@@ -195,6 +224,47 @@ for segment_index = 1:numel(segments)
     mask = mask | (time >= segments(segment_index).start & ...
         time <= segments(segment_index).end);
 end
+end
+
+function sample_table = local_nlos_bias_sample_table( ...
+        seed, segments, low_num, graph_interval)
+row_count = 0;
+for segment_index = 1:numel(segments)
+    if isempty(segments(segment_index).bias_sample_times)
+        first_epoch = max(1, ceil((segments(segment_index).start - 1e-9) / graph_interval));
+        last_epoch = floor((segments(segment_index).end + 1e-9) / graph_interval);
+        row_count = row_count + max(0, last_epoch - first_epoch + 1);
+    else
+        row_count = row_count + numel(segments(segment_index).bias_sample_times);
+    end
+end
+Seed = repmat(seed, row_count, 1);
+Segment = zeros(row_count, 1);
+Time_s = zeros(row_count, 1);
+Bias_m = zeros(row_count, 1);
+Follower = zeros(row_count, 1);
+Leader = zeros(row_count, 1);
+row = 0;
+for segment_index = 1:numel(segments)
+    segment = segments(segment_index);
+    if isempty(segment.bias_sample_times)
+        first_epoch = max(1, ceil((segment.start - 1e-9) / graph_interval));
+        last_epoch = floor((segment.end + 1e-9) / graph_interval);
+        times = (first_epoch:last_epoch)' * graph_interval;
+        samples = repmat(segment.bias, numel(times), 1);
+    else
+        times = segment.bias_sample_times(:);
+        samples = segment.bias_samples(:);
+    end
+    rows = row + (1:numel(times));
+    Segment(rows) = segment_index;
+    Time_s(rows) = times;
+    Bias_m(rows) = samples;
+    Follower(rows) = segment.edge(1);
+    Leader(rows) = segment.edge(2) - low_num;
+    row = row + numel(times);
+end
+sample_table = table(Seed, Segment, Time_s, Bias_m, Follower, Leader);
 end
 
 function representative = local_compact_representative( ...
@@ -369,10 +439,24 @@ end
 
 function parameter_table = local_parameter_table(cfg, seed_list)
 fault_segments = cfg.fault_segments;
-fault_magnitudes = unique(fault_segments(:, 3))';
 fault_durations = fault_segments(:, 2) - fault_segments(:, 1);
-fault_magnitude_text = strjoin(arrayfun(@(value) sprintf('%g', value), ...
-    fault_magnitudes, 'UniformOutput', false), ' / ');
+if strcmpi(char(cfg.fault_mode), 'segmented_explicit_edges_random_bias')
+    component_text = arrayfun(@(index) sprintf('%.2f*N(%g,%g^2)', ...
+        cfg.nlos_gmm_weights(index), cfg.nlos_gmm_means_m(index), ...
+        cfg.nlos_gmm_stds_m(index)), 1:numel(cfg.nlos_gmm_weights), ...
+        'UniformOutput', false);
+    fault_parameter_name = "NLOS positive-bias model";
+    fault_magnitude_text = sprintf('%s; truncated to [%g,%g]', ...
+        strjoin(component_text, ' + '), cfg.nlos_gmm_bounds_m(1), ...
+        cfg.nlos_gmm_bounds_m(2));
+    fault_sampling_text = "One independent draw per NLOS segment, held constant within the segment and shared by all methods";
+else
+    fault_magnitudes = unique(fault_segments(:, 3))';
+    fault_parameter_name = "Range-fault magnitudes";
+    fault_magnitude_text = strjoin(arrayfun(@(value) sprintf('%g', value), ...
+        fault_magnitudes, 'UniformOutput', false), ' / ');
+    fault_sampling_text = "Fixed within each scheduled fault segment";
+end
 fault_duration_text = sprintf('%g--%g', min(fault_durations), max(fault_durations));
 fault_time_text = sprintf('%g--%g', min(fault_segments(:, 1)), ...
     max(fault_segments(:, 2)));
@@ -383,7 +467,7 @@ Parameter = [ ...
     "Follower position prior standard deviation (E/N/U)"; ...
     "Leader position prior standard deviation (E/N/U)"; ...
     "CUSUM-FGO sliding-window length"; "IMU preintegration"; ...
-    "Monte Carlo trial count"; "Range-fault magnitudes"; ...
+    "Monte Carlo trial count"; fault_parameter_name; "NLOS sampling rule"; ...
     "Range-fault duration"; "Range-fault time span"; ...
     "Faulty range-edge arrangement"];
 Value = [ ...
@@ -393,13 +477,14 @@ Value = [ ...
     "10 / 10 / 20"; "0.2 / 0.2 / 0.5"; ...
     string(cfg.sliding_window_length); ...
     string(cfg.imu_preintegration_enable); string(numel(seed_list)); ...
-    string(fault_magnitude_text); string(fault_duration_text); ...
+    string(fault_magnitude_text); string(fault_sampling_text); ...
+    string(fault_duration_text); ...
     string(fault_time_text); ...
     sprintf('%d events on follower-leader edges; overlapping events permitted', ...
     size(fault_segments, 1))];
 Unit = [ ...
     "s"; "s"; "s"; "-"; "-"; "m"; "m"; "m"; "m"; ...
-    "keyframes"; "-"; "trials"; "m"; "s"; "s"; "-"];
+    "keyframes"; "-"; "trials"; "m"; "-"; "s"; "s"; "-"];
 parameter_table = table(Parameter, Value, Unit);
 end
 
@@ -462,6 +547,8 @@ writetable(summary.per_seed_table, ...
     fullfile(output_directory, 'SourceData_per_seed_metrics.csv'));
 writetable(summary.fault_schedule_table, ...
     fullfile(output_directory, 'SourceData_fault_schedule.csv'));
+writetable(summary.nlos_bias_sample_table, ...
+    fullfile(output_directory, 'SourceData_nlos_bias_samples.csv'));
 writetable(summary.segment_performance_table, ...
     fullfile(output_directory, 'Table4_fault_segment_performance.csv'));
 writetable(summary.segment_improvement_table, ...
@@ -485,6 +572,8 @@ writetable(summary.improvement_table, workbook, 'Sheet', 'Improvement', ...
 writetable(summary.per_seed_table, workbook, 'Sheet', 'Per-seed metrics', ...
     'WriteMode', 'overwritesheet');
 writetable(summary.fault_schedule_table, workbook, 'Sheet', 'Fault schedule', ...
+    'WriteMode', 'overwritesheet');
+writetable(summary.nlos_bias_sample_table, workbook, 'Sheet', 'NLOS bias samples', ...
     'WriteMode', 'overwritesheet');
 writetable(summary.segment_performance_table, workbook, ...
     'Sheet', 'Segment performance', 'WriteMode', 'overwritesheet');

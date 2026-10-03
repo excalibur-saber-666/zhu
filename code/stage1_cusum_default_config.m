@@ -23,6 +23,20 @@ cfg.base_leader_source_indices = [3, 4, 5];
 % in metres and follows the same prescribed manoeuvre thereafter.
 cfg.additional_leader_positions_xyz = zeros(3, 0);
 
+% Opt-in revision experiments. These fields do not alter existing profiles.
+cfg.revision_experiment_enable = false;
+cfg.revision_follower_source_indices = [];
+cfg.revision_record_inputs = false;
+cfg.revision_nlos_amplitude_scale = 1;
+cfg.revision_nlos_draw_indices = [];
+cfg.revision_relative_maneuver_enable = false;
+cfg.revision_maneuver_interval = [260, 460];
+cfg.revision_maneuver_yaw_deg = 4;
+cfg.revision_maneuver_speed_mps = 0.4;
+cfg.revision_maneuver_follower_scales = [1, -1, 0.5];
+cfg.revision_runtime_enable = false;
+cfg.revision_ablation_mode = 'full';
+
 cfg.seeds = 1;
 cfg.cusum_apply = true;
 % Keep the paired healthy replay by default for regression testing.  A
@@ -237,6 +251,16 @@ cfg.fault_bias = 2;
 % [start_time, end_time, additive_bias_m, follower, leader_global].
 cfg.fault_mode = 'single';
 cfg.fault_segments = zeros(0, 3);
+% Optional stochastic NLOS model used only by the dedicated paper profile.
+% Each active fault window draws one positive excess-path bias from a
+% truncated Gaussian mixture and keeps it for the duration of that window.
+% The legacy fixed-bias profiles remain unchanged unless the stochastic
+% fault mode is selected explicitly.
+cfg.nlos_gmm_weights = [0.60, 0.40];
+cfg.nlos_gmm_means_m = [3.0, 6.0];
+cfg.nlos_gmm_stds_m = [0.6, 1.0];
+cfg.nlos_gmm_bounds_m = [1.0, 8.0];
+cfg.nlos_gmm_seed_offset = 209759;
 
 cfg.verbose = true;
 cfg.assert_node_mapping = true;

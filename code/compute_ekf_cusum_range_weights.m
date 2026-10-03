@@ -22,6 +22,7 @@ for edge_index = 1:numel(edges)
     end
     [state, predicted_range, innovation, initialized] = local_predict_range( ...
         state, state_index, edges(edge_index).measurement, current_time);
+    detail.predictor_rate_before(edge_index) = state.range_rate(state_index);
     innovation_variance = max(cfg.sigma_dis^2 + cfg.ekf_cusum_range_predictor_std^2, ...
         cfg.ekf_cusum_baseline_variance_floor);
 
@@ -39,6 +40,9 @@ for edge_index = 1:numel(edges)
             detail.calibration_accepted(edge_index), 1);
         state = local_update_range_predictor(state, state_index, predicted_range, ...
             innovation, edges(edge_index).measurement, current_time, cfg);
+        detail.predictor_level_corrected(edge_index) = true;
+        detail.predictor_value_after(edge_index) = state.range_value(state_index);
+        detail.predictor_rate_after(edge_index) = state.range_rate(state_index);
         continue;
     end
     baseline_variance = max([state.baseline_variance(state_index), innovation_variance, ...
@@ -76,6 +80,10 @@ for edge_index = 1:numel(edges)
         state = local_update_range_predictor(state, state_index, predicted_range, ...
             innovation, edges(edge_index).measurement, current_time, cfg, freeze_predictor);
     end
+    detail.predictor_frozen(edge_index) = freeze_predictor && ~predictor_reset;
+    detail.predictor_level_corrected(edge_index) = ~freeze_predictor || predictor_reset;
+    detail.predictor_value_after(edge_index) = state.range_value(state_index);
+    detail.predictor_rate_after(edge_index) = state.range_rate(state_index);
 end
 
 weights = local_select_weights(edges, candidate_weights, detail, cfg);
@@ -341,6 +349,11 @@ edge_count = numel(edges);
 detail.global_pairs = zeros(edge_count, 2);
 detail.measurement = nan(edge_count, 1);
 detail.predicted_range = nan(edge_count, 1);
+detail.predictor_rate_before = nan(edge_count, 1);
+detail.predictor_rate_after = nan(edge_count, 1);
+detail.predictor_value_after = nan(edge_count, 1);
+detail.predictor_frozen = false(edge_count, 1);
+detail.predictor_level_corrected = false(edge_count, 1);
 detail.innovation = nan(edge_count, 1);
 detail.innovation_variance = nan(edge_count, 1);
 detail.centered_innovation = nan(edge_count, 1);
