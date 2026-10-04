@@ -1,0 +1,44 @@
+{
+  "passed": true,
+  "figures": [
+    {
+      "Figure": "E1_parameter_sensitivity",
+      "PNGWidth": 4251,
+      "PNGHeight": 2952,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 125.00000011944445,
+      "SVGTextElements": 136,
+      "SVGTextCharacters": 784
+    },
+    {
+      "Figure": "E4_runtime_convergence",
+      "PNGWidth": 4251,
+      "PNGHeight": 2952,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 125.00000011944445,
+      "SVGTextElements": 43,
+      "SVGTextCharacters": 540
+    },
+    {
+      "Figure": "E5_mechanism_ablation",
+      "PNGWidth": 4251,
+      "PNGHeight": 1771,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 74.99999993055555,
+      "SVGTextElements": 26,
+      "SVGTextCharacters": 280
+    }
+  ]
+}

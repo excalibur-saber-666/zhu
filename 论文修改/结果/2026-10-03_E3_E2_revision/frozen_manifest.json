@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-03",
+  "status": "definitions_frozen_before_formal_runs",
+  "stages": [
+    "E3",
+    "E2"
+  ],
+  "formal_seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "debug_seeds": [
+    1001,
+    1002
+  ],
+  "h": 5.0,
+  "kappa": 0.5,
+  "dt_s": 0.02,
+  "update_interval_s": 1.0,
+  "duration_s": 600,
+  "evaluation_position_time_s": [
+    0,
+    600
+  ],
+  "evaluation_detector_time_s": [
+    16,
+    600
+  ],
+  "detector_startup_excluded_epochs": 15,
+  "position_metrics": [
+    "Maximum",
+    "Mean",
+    "CDF95",
+    "RMSE3D"
+  ],
+  "quantile": "numpy quantile method=hazen (MATLAB prctile midpoint empirical convention)",
+  "formation_aggregations": [
+    "per_follower",
+    "pooled",
+    "follower_equal_macro"
+  ],
+  "scenarios": {
+    "baseline_3f": {
+      "sources": [
+        1,
+        2,
+        3
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "amplitude_scale": 1.0
+    },
+    "healthy_maneuver": {
+      "sources": [
+        1,
+        2,
+        3
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "no_nlos": true,
+      "interval_s": [
+        260,
+        460
+      ],
+      "yaw_amplitude_deg": 4.0,
+      "body_speed_amplitude_mps": 0.4,
+      "follower_scales": [
+        1,
+        -1,
+        0.5
+      ],
+      "methods": [
+        "cusum_ekf",
+        "cusum_fgo"
+      ]
+    },
+    "size_2f": {
+      "sources": [
+        1,
+        2
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "amplitude_scale": 1.0
+    },
+    "size_5f": {
+      "sources": [
+        1,
+        2,
+        3,
+        4,
+        21
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "amplitude_scale": 1.0,
+      "extra_fault_roles": {
+        "4": 1,
+        "5": 2
+      }
+    },
+    "nlos_weak": {
+      "sources": [
+        1,
+        2,
+        3
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "amplitude_scale": 0.5
+    },
+    "nlos_strong": {
+      "sources": [
+        1,
+        2,
+        3
+      ],
+      "leaders": [
+        11,
+        14,
+        15
+      ],
+      "amplitude_scale": 1.5
+    }
+  },
+  "e3": {
+    "event_interval": "closed [start,end] at range epochs, matching existing injector",
+    "detection": "first upward crossing of max(Cplus,Cminus)>=5 within fault interval; pre-existing threshold state separate",
+    "confirmed_alarm": "first alarm rising edge within fault interval; pre-existing alarm separate",
+    "isolation": "first actual admission true-to-false transition on fault edge within fault interval; pre-existing isolation separate",
+    "recovery_observation_s": 30,
+    "recovery_stable_epochs": 3,
+    "recovery_time": "first epoch of 3 consecutive observable admitted healthy epochs after event end, all 3 within observation horizon",
+    "recovery_population": "events with actual isolation during their active interval, including separately flagged pre-isolated events",
+    "recovery_censor": "next same-edge event, run end, or first unobservable epoch before stable recovery, if earlier than 30 s horizon",
+    "recovery_failure": "full 30 s observation with no 3-epoch stable admission",
+    "healthy_denominator": "observable non-fault leader-follower edge epochs at t>=16; includes residual alarm/isolation after faults",
+    "healthy_new_events": "state rising transitions at healthy epochs; residual carryover occupancy reported separately using latest episode onset label",
+    "healthy_phases": {
+      "pre_maneuver": [
+        16,
+        259
+      ],
+      "maneuver": [
+        260,
+        460
+      ],
+      "post_maneuver": [
+        461,
+        600
+      ]
+    },
+    "primary_figure_seed": 1,
+    "primary_fault_event": 1,
+    "primary_fault_edge": "F1-L1",
+    "primary_healthy_control_edge": "F1-L2",
+    "state_figures": "all seeds retained; main illustration fixed before evaluation, no outcome-based seed choice"
+  },
+  "communication_limit_m": 500,
+  "geometry": "all update epochs: leader LOS rank and condition, range limits, graph connectivity; initial-source nested identities",
+  "failure_policy": "preserve raw failed attempt and reason; never convert missing delays to zero or discard unsuccessful seeds",
+  "git_policy": "local only; no GitHub push authorized"
+}

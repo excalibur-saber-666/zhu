@@ -1,0 +1,43 @@
+{
+  "uav_num": 5,
+  "high_num": 3,
+  "dt": 0.02,
+  "t_stop": 600,
+  "communication_range": 500,
+  "sigma_dis": 0.2,
+  "sliding_window_length": 10,
+  "ekf_cusum_lambda": 0.9,
+  "ekf_cusum_kappa": 0.5,
+  "ekf_cusum_alarm_on_threshold": 5,
+  "ekf_cusum_alarm_off_threshold": 1.2,
+  "ekf_cusum_alarm_confirm_epochs": 2,
+  "ekf_cusum_alarm_release_epochs": 3,
+  "ekf_cusum_calibration_samples": 15,
+  "ekf_cusum_innovation_gate": 4,
+  "ekf_cusum_release_innovation_gate": 1,
+  "ekf_cusum_weight_deadzone": 1.5,
+  "ekf_cusum_weight_gain": 0.5,
+  "ekf_cusum_weight_min": 0.1,
+  "ekf_cusum_range_predictor_alpha": 0.3,
+  "ekf_cusum_range_predictor_beta": 0.05,
+  "ekf_cusum_range_predictor_std": 0.8,
+  "ekf_cusum_predictor_freeze_threshold": 1,
+  "ekf_cusum_frozen_rate_adapt_gain": 0.2,
+  "ekf_cusum_frozen_rate_gate": 1,
+  "fgo_cusum_detector_mode": "range_predictor",
+  "fgo_cusum_soft_weight_mode": "per_follower_max",
+  "sliding_window_alarm_exclusion_mode": "per_follower_max",
+  "imu_preintegration_enable": 0,
+  "range_predictor_opposite_step_reset_enable": 0,
+  "fgo_cusum_opposite_step_reset_enable": 0,
+  "revision_nlos_amplitude_scale": 1,
+  "revision_follower_source_indices": [
+    1,
+    2
+  ],
+  "base_leader_source_indices": [
+    11,
+    14,
+    15
+  ]
+}

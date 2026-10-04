@@ -1,0 +1,230 @@
+[
+  {
+    "ID": "Review295-1",
+    "Concern": "贡献与相关工作",
+    "Experiment": "E5（增强证据）、E2（场景支撑）",
+    "Status": "PARTIAL：已有机制与场景证据，贡献段和最相关工作对比尚待写入正文。",
+    "Evidence": [
+      "../code/EXPERIMENT_CONTEXT.md",
+      "结果/2026-10-03_E1_E4_E5_revision/E5_机制消融结果.md",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E5/position_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E5/paired_center_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E5_mechanism_ablation.svg"
+    ],
+    "ManuscriptLocation": "Introduction：三条贡献及相关工作对比表/段落；Discussion：适用边界。正文未修订，页码/行号待最终稿产生。",
+    "RemainingRisk": "最相关文献核对和对比尚未完成，不能把 RMSE 改善当作算法原创性证明。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review295/01_贡献与相关工作/README.md"
+  },
+  {
+    "ID": "Review295-2",
+    "Concern": "英文与技术术语",
+    "Experiment": "不需要新增实验",
+    "Status": "TODO_TEXT：英文稿尚未完成本轮润色。",
+    "Evidence": [
+      "优化讨论与建议.md",
+      "../code/compute_ekf_cusum_range_weights.m",
+      "../code/EXPERIMENT_CONTEXT.md"
+    ],
+    "ManuscriptLocation": "全文、图注与表注；正文修改和页行号未完成。",
+    "RemainingRisk": "当前公开包不含 Word；不能声称语言已修改或已经验证所有术语一致。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review295/02_英文与技术术语/README.md"
+  },
+  {
+    "ID": "Review296-1",
+    "Concern": "参数依据与敏感性",
+    "Experiment": "E1",
+    "Status": "PARTIAL：实验与汇总已完成，参数解释尚待写入正文。",
+    "Evidence": [
+      "结果/2026-10-03_E1_E4_E5_revision/E1_参数敏感性结果.md",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E1/position_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E1/health_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E1/event_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E1/metrics_per_seed.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E1_parameter_sensitivity.svg",
+      "../code/remaining_revision_config.m",
+      "../code/analyze_remaining_revision.py"
+    ],
+    "ManuscriptLocation": "Methods：h、κ 定义与选择解释；Results：敏感性；Discussion：折中及局部网格边界。正文页行号未产生。",
+    "RemainingRisk": "没有独立参数标定实验；若改变主参数须另设 calibration/evaluation seeds，不能将当前九点分析写成理论最优或全局最优。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review296/01_参数依据与敏感性/README.md"
+  },
+  {
+    "ID": "Review296-2",
+    "Concern": "编队规模与NLOS强度",
+    "Experiment": "E2a 规模、E2b 强度",
+    "Status": "PARTIAL：实验和 follower/formation 统计已完成，正文尚待补充。",
+    "Evidence": [
+      "结果/2026-10-03_E3_E2_revision/E3_E2_实验结果报告.md",
+      "结果/2026-10-03_E3_E2_revision/tables/E2/position_summary.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E2/metrics_per_seed.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E2/geometry_per_seed.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/geometry_all_scenarios.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/admitted_constraints_per_seed.csv",
+      "结果/2026-10-03_E3_E2_revision/figures/E2a_formation_size.svg",
+      "结果/2026-10-03_E3_E2_revision/figures/E2b_NLOS_intensity.svg",
+      "../code/revision_experiment_config.m",
+      "../code/revision_validate_config.m"
+    ],
+    "ManuscriptLocation": "Results：分别增加规模与 NLOS 强度小节；Discussion：几何、冗余及节点构成变化。页行号待修订。",
+    "RemainingRisk": "不同规模的节点构成、冗余与噪声维度不能完全分离；不声称任意规模或任意 NLOS 均鲁棒。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review296/02_编队规模与NLOS强度/README.md"
+  },
+  {
+    "ID": "Review296-3",
+    "Concern": "健康误隔离与恢复",
+    "Experiment": "E3（含无NLOS机动健康压力场景）",
+    "Status": "PARTIAL：诊断及指标已完成；已知失误保留，优化尚未实施。",
+    "Evidence": [
+      "结果/2026-10-03_E3_E2_revision/E3_E2_实验结果报告.md",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/event_summary.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/events_per_seed.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/health_summary.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/health_per_seed.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/healthy_isolation_episodes.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/recovery_failure_diagnostics.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E3/missed_isolation_diagnostics.csv",
+      "结果/2026-10-03_E3_E2_revision/figures/E3_state_chain.svg",
+      "结果/2026-10-03_E3_E2_revision/figures/E3_recovery_failure.svg",
+      "结果/2026-10-03_E3_E2_revision/figures/E3_healthy_maneuver.svg",
+      "优化讨论与建议.md",
+      "../code/compute_ekf_cusum_range_weights.m",
+      "../code/run_stage1_cusum_comparison.m"
+    ],
+    "ManuscriptLocation": "Methods：状态与准入规则；Results：E3；Discussion：误隔离、恢复超时及每 follower 一条主要异常边的边界。页行号待修订。",
+    "RemainingRisk": "稳定准入与报警清除不同；占用率和发生过误隔离的运行比例不同；多条同时严重异常边未充分验证。优化建议不是已完成结果。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review296/03_健康误隔离与恢复/README.md"
+  },
+  {
+    "ID": "Review296-4",
+    "Concern": "计算性能与收敛",
+    "Experiment": "E4",
+    "Status": "PARTIAL：两种计时、尾部和迭代统计已完成，正文尚待补充。",
+    "Evidence": [
+      "结果/2026-10-03_E1_E4_E5_revision/E4_计算性能与收敛结果.md",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E4/runtime_summary.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E4/timing_seeds_per_seed.csv",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E4_runtime_convergence.svg",
+      "../code/run_stage1_cusum_comparison.m",
+      "../code/analyze_remaining_revision.py",
+      "../code/test_remaining_revision_experiments.m"
+    ],
+    "ManuscriptLocation": "Methods：硬件与计时起止；Results：四方法均值、P95/P99、最大值和 GN 迭代；Discussion：实时性边界。页行号待修订。",
+    "RemainingRisk": "现有完整方法实现的结构与计算差异不能全部归为 CUSUM 检测成本；未测试外部 I/O 延迟或机载硬实时。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review296/04_计算性能与收敛/README.md"
+  },
+  {
+    "ID": "Review296-5",
+    "Concern": "图示解释与流程复现",
+    "Experiment": "E3状态链、E1–E5结果解释；源码和配置快照",
+    "Status": "PARTIAL：可复现材料和结果图已整理，正文格式与流程图仍待落实。",
+    "Evidence": [
+      "结果/2026-10-03_E3_E2_revision/figures/E3_state_chain.svg",
+      "结果/2026-10-03_E3_E2_revision/图表与复算索引.md",
+      "结果/2026-10-03_E1_E4_E5_revision/图表与复算索引.md",
+      "结果/2026-10-03_E3_E2_revision/README.md",
+      "结果/2026-10-03_E1_E4_E5_revision/README.md",
+      "../code/说明/2026-10-03_返修实验实现与验证.md",
+      "../code/revision_experiment_config.m",
+      "../code/remaining_revision_config.m"
+    ],
+    "ManuscriptLocation": "Methods：符号、公式和伪代码；Fig.1：确认、隔离、恢复；Results：逐图解释。实际改稿位置未产生。",
+    "RemainingRisk": "当前包不包含完整 MAT/NPZ，不能声称已具备脱离本地原始数据的完整复算条件。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review296/05_图示解释与流程复现/README.md"
+  },
+  {
+    "ID": "Review297-1",
+    "Concern": "缩写首次展开",
+    "Experiment": "不需要新增实验",
+    "Status": "TODO_TEXT：摘要与正文首次出现缩写尚待核查。",
+    "Evidence": [
+      "审稿意见原文/Review297.txt",
+      "../code/EXPERIMENT_CONTEXT.md"
+    ],
+    "ManuscriptLocation": "Abstract 首次 UAV，以及正文、图注中的缩写首次使用。页行号待修订。",
+    "RemainingRisk": "缩写全称应与作者实际概念一致，尤其 GNSS/GPS、INS/SINS 不能在未确认含义时机械合并。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review297/01_缩写首次展开/README.md"
+  },
+  {
+    "ID": "Review297-2",
+    "Concern": "最新相关文献",
+    "Experiment": "不需要新增实验；需要文献检索与核查",
+    "Status": "TODO_REFERENCES：尚未完成最新文献检索和引言更新。",
+    "Evidence": [
+      "审稿意见原文/Review297.txt",
+      "历史方案/审稿意见汇总与论文修改方案.md",
+      "../code/EXPERIMENT_CONTEXT.md"
+    ],
+    "ManuscriptLocation": "Introduction 的 related work 和 References。具体新增文献与页行号待后续核查。",
+    "RemainingRisk": "当前公开材料不含参考论文全文；需要实际检索和出版社元数据核对。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review297/02_最新相关文献/README.md"
+  },
+  {
+    "ID": "Review297-3",
+    "Concern": "逐点列出贡献",
+    "Experiment": "E5及E2作为支撑；交叉对应Review295-1",
+    "Status": "PARTIAL：实验支撑已有，三条贡献及对比尚待写入。",
+    "Evidence": [
+      "结果/2026-10-03_E1_E4_E5_revision/E5_机制消融结果.md",
+      "结果/2026-10-03_E1_E4_E5_revision/tables/E5/paired_center_summary.csv",
+      "结果/2026-10-03_E3_E2_revision/tables/E2/position_summary.csv",
+      "../code/EXPERIMENT_CONTEXT.md"
+    ],
+    "ManuscriptLocation": "Introduction 末尾 contributions 与对比段/表；引用依据待核查，页行号待修订。",
+    "RemainingRisk": "贡献的创新性仍需文献比较；结果改善不能单独证明原创。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review297/03_逐点列出贡献/README.md"
+  },
+  {
+    "ID": "Review297-4",
+    "Concern": "图中文字与版面",
+    "Experiment": "九组PNG/SVG实验图；原稿Fig.4/5版面尚待修改",
+    "Status": "PARTIAL：新实验图已导出核查，Word版面尚未完成。",
+    "Evidence": [
+      "结果/2026-10-03_E3_E2_revision/图表与复算索引.md",
+      "结果/2026-10-03_E1_E4_E5_revision/图表与复算索引.md",
+      "结果/2026-10-03_E3_E2_revision/figures/E3_seed_statistics.svg",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E1_parameter_sensitivity.svg",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E4_runtime_convergence.svg",
+      "结果/2026-10-03_E1_E4_E5_revision/figures/E5_mechanism_ablation.svg"
+    ],
+    "ManuscriptLocation": "Fig.1、Fig.4、Fig.5 及新增实验图；最终版面检查待 Word 修订。",
+    "RemainingRisk": "高 DPI 或矢量导出不自动证明最终缩放后的字体足够大；不能把新图导出核查当作原稿版面已通过。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review297/04_图中文字与版面/README.md"
+  },
+  {
+    "ID": "Review297-5",
+    "Concern": "参考文献2页码",
+    "Experiment": "不需要新增实验；需要出版社元数据核查",
+    "Status": "TODO_REFERENCE2：尚未完成出版社元数据与期刊格式确认。",
+    "Evidence": [
+      "审稿意见原文/Review297.txt",
+      "历史方案/审稿意见汇总与论文修改方案.md"
+    ],
+    "ManuscriptLocation": "References 第2条；最终著录格式、页行号待核查。",
+    "RemainingRisk": "目前未提供经出版社验证的更正字段，不声称页码问题已解决。",
+    "BlocksFinalSubmission": true,
+    "Readiness": "draft_with_placeholders",
+    "Path": "审稿问题/Review297/05_参考文献2页码/README.md"
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "deleted_figure_pdfs": 9,
+  "retained_existing_figure_files": 18,
+  "original_png_svg_hashes_unchanged": true,
+  "future_export_smoke_formats": [
+    "PNG",
+    "SVG"
+  ],
+  "real_figure_export_audits_passed": 9,
+  "statistical_tests_passed": 13,
+  "requested_format_validation_passed": true,
+  "generic_default_pdf_requirement_exceptions": 4,
+  "unexpected_source_preflight_failures": 0,
+  "exception_reason": "User explicitly requested removing PDF figures and stopping PDF generation."
+}

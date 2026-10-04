@@ -1,0 +1,50 @@
+[
+  {
+    "path": "analyze_remaining_revision.py",
+    "sha256": "6bcd5860574bd2b0cb914b6203b6c211623ce1c664589f218750620df77ffe2e"
+  },
+  {
+    "path": "analyze_revision_experiments.py",
+    "sha256": "1f271d9d5027df04f65506207929c85a88386b40eae96bb83003ae911e305169"
+  },
+  {
+    "path": "audit_remaining_revision.py",
+    "sha256": "5ada2b949c986d0d31ff9acdd3a0a78030f3f831d209ba5514c54c9800456dcf"
+  },
+  {
+    "path": "audit_revision_delivery.py",
+    "sha256": "07b2cf9e3d81fe5ecb0562e01497ca389a8dfcff99194cb7306d2f0041951d16"
+  },
+  {
+    "path": "diagnose_revision_e3.py",
+    "sha256": "336ee44b4a891a5078f991b0ecd461b1f1e96890d1b7dc99fd80bcc177890b3d"
+  },
+  {
+    "path": "plot_remaining_revision.py",
+    "sha256": "f853ebc8dd89b297424aa234f3ff616cfa5ee14887f902506459bf646e426a15"
+  },
+  {
+    "path": "plot_revision_experiments.py",
+    "sha256": "edcb5310a5e2d31ba8278932ba1587e078db5a9040864ca0854391a504957c75"
+  },
+  {
+    "path": "revision_python_requirements.txt",
+    "sha256": "27ff219f0a607a50aa53876b147451323653c275755cfbd79f309a33e1af426c"
+  },
+  {
+    "path": "test_remaining_revision_analysis.py",
+    "sha256": "b81d387ac17477add739e3b9f7397431815f1f37597193cb9d0d0ab153cb2fa5"
+  },
+  {
+    "path": "test_revision_analysis.py",
+    "sha256": "eea53e969cb48caf11dd365a69f44ad864027cf1c4dedf580f52adaab0ad9a29"
+  },
+  {
+    "path": "write_remaining_revision_report.py",
+    "sha256": "bb0c8280a681c8d0a1df5572085e11fb87839ab9514a274f201d3096ab3539b5"
+  },
+  {
+    "path": "write_revision_report.py",
+    "sha256": "a7df2f9b96d5e40227400f1a50a79ab78a1bced7d336f08d054ad4cb5e5f019e"
+  }
+]

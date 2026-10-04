@@ -1,0 +1,4 @@
+This paper proposed CUSUM-FGO, a two-sided cumulative sum (CUSUM)-based weighted slidingwindow factor graph optimization method. The topic is very interesting, and the idea and technology is novel. Overall, the manuscript is recommended for publication after some major revisions.
+Specific comments
+1.  The contribution of this paper is not clear to multi-UAV cooperative navigation. More details should be given to stress the main contributions of this paper, compared with existing work in literature, 
+2. The English is in general comprehensible, but still could be significantly improved, including minor spelling and grammatical mistakes.

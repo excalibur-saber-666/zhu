@@ -1,0 +1,83 @@
+{
+  "passed": true,
+  "figures": [
+    {
+      "Figure": "E3_state_chain",
+      "PNGWidth": 4251,
+      "PNGHeight": 4015,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 170.00000007777777,
+      "SVGTextElements": 82,
+      "SVGTextCharacters": 534
+    },
+    {
+      "Figure": "E3_recovery_failure",
+      "PNGWidth": 4251,
+      "PNGHeight": 4015,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 170.00000007777777,
+      "SVGTextElements": 78,
+      "SVGTextCharacters": 536
+    },
+    {
+      "Figure": "E3_seed_statistics",
+      "PNGWidth": 4251,
+      "PNGHeight": 1535,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 65.000000175,
+      "SVGTextElements": 31,
+      "SVGTextCharacters": 295
+    },
+    {
+      "Figure": "E3_healthy_maneuver",
+      "PNGWidth": 4251,
+      "PNGHeight": 3070,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 129.99999999722223,
+      "SVGTextElements": 27,
+      "SVGTextCharacters": 264
+    },
+    {
+      "Figure": "E2a_formation_size",
+      "PNGWidth": 4251,
+      "PNGHeight": 2952,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 125.00000011944445,
+      "SVGTextElements": 53,
+      "SVGTextCharacters": 400
+    },
+    {
+      "Figure": "E2b_NLOS_intensity",
+      "PNGWidth": 4251,
+      "PNGHeight": 2952,
+      "DPI": [
+        599.9988,
+        599.9988
+      ],
+      "SVGWidthMM": 179.99999983333333,
+      "SVGHeightMM": 125.00000011944445,
+      "SVGTextElements": 51,
+      "SVGTextCharacters": 372
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+commit 742ab7a505bf00471a594be89302c947b91e5626
+Author:     Codex Local <codex@local>
+AuthorDate: Sat Oct 3 12:13:27 2026 +0800
+Commit:     Codex Local <codex@local>
+CommitDate: Sat Oct 3 12:13:27 2026 +0800
+
+    fix: 取消图表PDF导出并发布实验审阅材料
+    
+    按用户要求仅导出PNG/SVG，删除本轮图片PDF，并提供两阶段报告、汇总CSV和图表的Release下载说明。验证：13项统计测试通过；保留的18份PNG/SVG哈希一致，两个导出短验证和九组实际图格式核查通过；审阅ZIP及五个附件的GitHub服务器SHA256核对通过。通用图表检查器的PDF要求按用户指令记录例外。仅格式与文档变更，MATLAB算法未改，未重跑正式实验。
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index faeb088..4c57bd0 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,14 @@
+ 
+ ## 2026-10-03
+ 
++### 上传实验审阅材料并取消图片 PDF
++
++- 来源：用户要求将结果打包上传，随后用截图明确两阶段报告、汇总 CSV 和主要图表的范围，并要求“图片不用再生成 PDF，把 PDF 都删除”。
++- 两阶段审阅包包含 87 个文件、26 份汇总/缺失清单 CSV 和 18 份 PNG/SVG 图，约 4.5 MB；附包清单、逐文件 SHA256 和下载校验清单。发布于同仓库 Release，完整原始 MAT、缓存和论文原稿保留在本地。
++- 删除本轮九份图表 PDF 和含 PDF 的未上传旧报告包；将未公开上传的大体积辅助包整理到 `D:/codex_agent/输出/2026-10-03_GitHub实验结果发布/`。参考论文 PDF 保留。
++- 两个绘图入口取消 PDF 导出，两个图表核查入口改查 SVG 尺寸/文字与 PNG 分辨率。数值分析和 MATLAB 算法未改，原执行快照与实验验收记录保留；补充当前格式核查说明。
++- 验证：13 项统计测试通过；PNG/SVG 哈希与原文件一致；两个导出短验证与九组实际图格式核查通过。通用图表检查器中的四项 PDF 默认要求按用户指定格式记录例外，其余失败为零。未重跑 MATLAB 或正式实验。
++
+ ### 按用户后续授权上传实验修改
+ 
+ - 来源：用户在全部实验完成后明确要求“把所有的实验修改都上传到 github”，授权本次推送，替代实验执行阶段仅本地保存的要求。
+diff --git a/README.md b/README.md
+index eab0122..eaaa93a 100644
+--- a/README.md
++++ b/README.md
+@@ -119,4 +119,6 @@ E3→E2→E1→E4→E5 已按冻结方案完成，完整材料见 [实验结果
+ 
+ 新增正式入口为 `run_revision_experiments`、`run_remaining_revision_experiments` 与对应配置工厂；两阶段结果分别在 `结果/2026-10-03_E3_E2_revision/` 和 `结果/2026-10-03_E1_E4_E5_revision/`，复算使用各自执行快照。新增计时与机制消融默认关闭，保留当前基准。实现、状态和验证说明见 [返修实验实现与验证](code/说明/2026-10-03_返修实验实现与验证.md)。
+ 
+-GitHub 包含实验实现、配置、测试、统计分析、绘图、报告生成脚本及修改方案和实现说明。`结果/`、`论文/`、`资料/` 继续遵循本地文件规则；总索引内这些目录的链接需要本地实验资料。上传校验重新执行了 13 个统计测试，并确认当前 61 个 MATLAB/数据文件及 12 个分析脚本/依赖文件与实验验收快照一致；原始实验和 MATLAB 验证记录保留在本地结果目录。
++GitHub 包含实验实现、配置、测试、统计分析、绘图、报告生成脚本及修改方案和实现说明。两阶段报告、汇总 CSV、主要图表和已有验收记录另以 [Release 审阅包](https://github.com/excalibur-saber-666/zhu/releases/tag/revision-experiments-2026-10-03) 提供，下载与核查步骤见 [实验结果下载说明](实验结果下载说明.md)。原始 MAT、离线缓存、论文 Word 与参考资料继续保存在本地。
++
++用户要求图片不生成 PDF，因此已删除本轮九份图表 PDF，当前绘图和导出核查只使用 SVG 与 600 dpi PNG。保留的十八份 PNG/SVG 与原文件哈希一致；两种绘图入口的导出短验证、九组实际图的格式核查及 13 项统计测试通过。历史执行快照与验收报告记录当时格式，保留用于追溯。
+diff --git a/code/audit_remaining_revision.py b/code/audit_remaining_revision.py
+index ea5c8db..e8a2bb6 100644
+--- a/code/audit_remaining_revision.py
++++ b/code/audit_remaining_revision.py
+@@ -22,7 +22,6 @@ def sha(path):
+ 
+ def figures(output):
+     from PIL import Image
+-    from pypdf import PdfReader
+     rows=[]
+     for name in ('E1_parameter_sensitivity','E4_runtime_convergence','E5_mechanism_ablation'):
+         base=output/'figures'/name
+@@ -30,15 +29,15 @@ def figures(output):
+             width,height=im.size; dpi=im.info['dpi']
+         svg=ET.parse(base.with_suffix('.svg')).getroot()
+         count=len(list(svg.iter('{http://www.w3.org/2000/svg}text')))
+-        pdf=PdfReader(base.with_suffix('.pdf')); assert len(pdf.pages)==1
+-        page=pdf.pages[0]; width_mm=float(page.mediabox.width)*25.4/72
+-        height_mm=float(page.mediabox.height)*25.4/72
++        width_mm=float(svg.attrib['width'].removesuffix('pt'))*25.4/72
++        height_mm=float(svg.attrib['height'].removesuffix('pt'))*25.4/72
+         assert abs(width_mm-180)<.1 and height_mm<=175 and count>10
+         assert min(dpi)>599 and abs(width/min(dpi)*25.4-180)<.1
+-        assert len(page.extract_text())>100
++        characters=sum(len(node.text or '') for node in svg.iter('{http://www.w3.org/2000/svg}text'))
++        assert characters>100
+         rows.append(dict(Figure=name,PNGWidth=width,PNGHeight=height,DPI=dpi,
+-            PDFWidthMM=width_mm,PDFHeightMM=height_mm,SVGTextElements=count,
+-            PDFExtractedCharacters=len(page.extract_text())))
++            SVGWidthMM=width_mm,SVGHeightMM=height_mm,SVGTextElements=count,
++            SVGTextCharacters=characters))
+     (output/'validation'/'figure_exports.json').write_text(
+         json.dumps(dict(passed=True,figures=rows),indent=2),encoding='utf-8')
+     return rows
+diff --git a/code/audit_revision_delivery.py b/code/audit_revision_delivery.py
+index dbeb3a4..908f241 100644
+--- a/code/audit_revision_delivery.py
++++ b/code/audit_revision_delivery.py
+@@ -21,7 +21,6 @@ def sha(path):
+ def audit_figures(output=DEFAULT_OUTPUT):
+     """Check actual exports, supplementing the plotting-source preflight."""
+     from PIL import Image
+-    from pypdf import PdfReader
+     rows=[]
+     for name in ('E3_state_chain','E3_recovery_failure','E3_seed_statistics',
+                  'E3_healthy_maneuver','E2a_formation_size','E2b_NLOS_intensity'):
+@@ -30,19 +29,18 @@ def audit_figures(output=DEFAULT_OUTPUT):
+             width,height=im.size; dpi=im.info['dpi']
+         svg=ET.parse(base.with_suffix('.svg')).getroot()
+         text_count=len(list(svg.iter('{http://www.w3.org/2000/svg}text')))
+-        pdf=PdfReader(base.with_suffix('.pdf'))
+-        assert len(pdf.pages)==1 and text_count>10
+-        page=pdf.pages[0]; width_mm=float(page.mediabox.width)*25.4/72
+-        height_mm=float(page.mediabox.height)*25.4/72
+-        selectable=len(page.extract_text())
++        width_mm=float(svg.attrib['width'].removesuffix('pt'))*25.4/72
++        height_mm=float(svg.attrib['height'].removesuffix('pt'))*25.4/72
++        selectable=sum(len(node.text or '') for node in svg.iter('{http://www.w3.org/2000/svg}text'))
++        assert text_count>10
+         assert abs(width_mm-180)<.1 and height_mm<=175
+         assert min(dpi)>599 and abs(width/min(dpi)*25.4-180)<.1 and selectable>100
+         rows.append(dict(Figure=name,PNGWidth=width,PNGHeight=height,DPI=dpi,
+-            PDFWidthMM=width_mm,PDFHeightMM=height_mm,SVGTextElements=text_count,
+-            PDFExtractedCharacters=selectable))
++            SVGWidthMM=width_mm,SVGHeightMM=height_mm,SVGTextElements=text_count,
++            SVGTextCharacters=selectable))
+     (output/'validation'/'figure_exports.json').write_text(
+         json.dumps(dict(passed=True,figures=rows),indent=2),encoding='utf-8')
+-    print('Actual PDF/SVG/PNG export checks passed for all six figures.')
++    print('Actual SVG/PNG export checks passed for all six figures.')
+ 
+ 
+ def audit(output=DEFAULT_OUTPUT):
+diff --git a/code/plot_remaining_revision.py b/code/plot_remaining_revision.py
+index 9dc659e..c294d73 100644
+--- a/code/plot_remaining_revision.py
++++ b/code/plot_remaining_revision.py
+@@ -10,7 +10,7 @@ import numpy as np
+ from matplotlib.patches import Rectangle
+ plt.rcParams.update({'font.family':'sans-serif','font.sans-serif':['Arial','DejaVu Sans'],
+     'font.size':8,'axes.labelsize':8,'axes.titlesize':8,'legend.fontsize':7,
+-    'svg.fonttype':'none','pdf.fonttype':42})
++    'svg.fonttype':'none'})
+ 
+ 
+ def read(output,stage,name):
+@@ -20,7 +20,6 @@ def read(output,stage,name):
+ def save(fig,output,name):
+     destination=output/'figures'; destination.mkdir(parents=True,exist_ok=True)
+     fig.canvas.draw(); fig.canvas.draw(); fig.set_layout_engine('none')
+-    fig.savefig(destination/f'{name}.pdf',facecolor='white')
+     fig.savefig(destination/f'{name}.svg',facecolor='white')
+     fig.savefig(destination/f'{name}.png',dpi=600,facecolor='white')
+     plt.close(fig)
+diff --git a/code/plot_revision_experiments.py b/code/plot_revision_experiments.py
+index af953cd..fff5f7f 100644
+--- a/code/plot_revision_experiments.py
++++ b/code/plot_revision_experiments.py
+@@ -3,7 +3,7 @@
+ Figure contract: quantitative grids. State-chain panels establish what the
+ online detector and admission policy actually did; aggregate panels show
+ seed-level dispersion and limitations. Fixed seed 1 is illustrative only.
+-PDF/SVG retain editable text; PNG is a 600 dpi companion. Default width is
++SVG retains editable text; PNG is a 600 dpi companion. Default width is
+ 180 mm, with 8 pt text. No time sample is treated as an independent trial.
+ """
+ import argparse
+@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
+ 
+ plt.rcParams.update({"font.family":"sans-serif","font.sans-serif":["Arial","DejaVu Sans"],
+     "font.size":8,"axes.labelsize":8,"axes.titlesize":8,"legend.fontsize":7,
+-    "svg.fonttype":"none","pdf.fonttype":42,"axes.spines.top":False,
++    "svg.fonttype":"none","axes.spines.top":False,
+     "axes.spines.right":False,"axes.linewidth":.7,"lines.linewidth":1.2,"legend.frameon":False})
+ COLORS={"ekf":"#8C8C8C","fgo":"#597FA0","cusum_ekf":"#C6975D","cusum_fgo":"#427C71"}
+ LABELS={"ekf":"EKF","fgo":"FGO","cusum_ekf":"CUSUM-EKF","cusum_fgo":"CUSUM-FGO"}
+@@ -40,11 +40,10 @@ def save(fig,output,name):
+     destination=output/"figures"
+     destination.mkdir(parents=True,exist_ok=True)
+     # Freeze one Agg layout before switching export renderers. Repeated
+-    # constrained-layout passes across PDF/SVG/PNG can otherwise shift labels.
++    # constrained-layout passes across SVG/PNG can otherwise shift labels.
+     fig.canvas.draw()
+     fig.canvas.draw()
+     fig.set_layout_engine("none")
+-    fig.savefig(destination/f"{name}.pdf",facecolor="white")
+     fig.savefig(destination/f"{name}.svg",facecolor="white")
+     fig.savefig(destination/f"{name}.png",dpi=600,facecolor="white")
+     plt.close(fig)
+diff --git "a/\345\256\236\351\252\214\347\273\223\346\236\234\344\270\213\350\275\275\350\257\264\346\230\216.md" "b/\345\256\236\351\252\214\347\273\223\346\236\234\344\270\213\350\275\275\350\257\264\346\230\216.md"
+new file mode 100644
+index 0000000..835df1c
+--- /dev/null
++++ "b/\345\256\236\351\252\214\347\273\223\346\236\234\344\270\213\350\275\275\350\257\264\346\230\216.md"
+@@ -0,0 +1,41 @@
++# 论文返修实验审阅材料下载
++
++实验代码位于 `codex/random-nlos-gmm` 分支，结果包发布到同一仓库：
++
++[2026-10-03 论文返修实验报告、汇总表与图表](https://github.com/excalibur-saber-666/zhu/releases/tag/revision-experiments-2026-10-03)
++
++## 下载哪些文件
++
++- `revision-review-materials-2026-10-03.zip`：两阶段报告、E1–E5 汇总 CSV、主要 SVG/PNG 图表、已有验收与图表校验记录、修改方案、操作大纲和两份论文修订建议。
++- `review_package_manifest.json`：压缩包大小、SHA256、文件数量、收录范围和下载链接。
++- `review_file_manifest.csv`：每个归档文件的项目相对路径、体积、SHA256 和所属 ZIP。
++- `REVIEW_SHA256SUMS.txt`：压缩包与清单的完整性校验值。
++- `README-review.md`：下载、校验和解压说明。
++
++本次公开上传按用户截图列出的范围提供审阅材料；原始 MAT、离线缓存、逐历元数据、论文 Word 和参考文献保留在本地。
++
++用户随后要求删除图片 PDF，因此本轮九组图只提供 SVG 与 600 dpi PNG；绘图入口和现行图表导出核查也使用这两种格式。原报告和历史验收记录中提到 PDF 的内容保留为实验完成时的记录。
++
++## 解压与核查
++
++将 ZIP 解压到新的目录，保留 `结果/` 与 `论文/修订记录/` 的路径。先阅读《实验结果总索引.md》，再核查两阶段报告、汇总 CSV 和图表。建议在独立目录解压，避免覆盖现有项目。
++
++使用标准 ZIP 解压工具；中文路径使用 ZIP 的 UTF-8 文件名标记。本包可核查已报告结果与验收记录，不能代替依赖完整原始 MAT 和执行快照的独立复算。原报告中指向 raw、derived 或其他未收录内容的链接需本地完整资料。
++
++下载后，先在下载目录用 PowerShell 校验：
++
++```powershell
++$ErrorActionPreference = 'Stop'
++Get-Content -LiteralPath 'REVIEW_SHA256SUMS.txt' -Encoding UTF8 | ForEach-Object {
++    $parts = $_ -split '  ', 2
++    if ($parts.Count -ne 2) { throw '校验清单格式不正确' }
++    $actual = (Get-FileHash -LiteralPath $parts[1] -Algorithm SHA256).Hash.ToLower()
++    if ($actual -ne $parts[0]) { throw ('文件校验失败：' + $parts[1]) }
++}
++```
++
++## 材料边界
++
++本次整理保留报告中的负面结果和参数定义，没有重跑正式实验或重新选参。E3 中的健康误隔离与恢复超时、E4 的当前硬件 / 1 Hz 限制及 E5 的基准场景范围均保留。
++
++原有报告中的“未推送 GitHub”等表述记录实验验收时的状态；后续代码提交与本次审阅材料发布按用户另行明确授权完成。

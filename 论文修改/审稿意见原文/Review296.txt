@@ -1,0 +1,6 @@
+This paper proposes a two-sided CUSUM-based weighted sliding-window factor graph optimization method for multi-UAV cooperative navigation under intermittent NLOS interference. An alpha-beta predictor on each leader-follower range edge generates signed normalized innovations for CUSUM monitoring, and the resulting weights are integrated into a sliding-window factor graph with feedback to an error-state Kalman filter. 
+1. The paper should clarify how the CUSUM threshold and drift parameters are selected and how sensitive the performance is to these choices.
+2. The authors should include additional scenarios with different formation sizes and varying NLOS intensity to strengthen the generality of the conclusions.
+3. The selective isolation mechanism after alarm confirmation is described but not analyzed in detail, particularly regarding the risk of isolating healthy edges or failing to recover them promptly. 
+4. The comparison focuses mainly on positioning error metrics, while other relevant aspects such as computational cost, convergence behavior, and real-time feasibility are not reported.
+5. Several figures are referenced without sufficient interpretation, and the reproduction of the method's pipeline is partly obscured by unclear formatting in the rendered text.

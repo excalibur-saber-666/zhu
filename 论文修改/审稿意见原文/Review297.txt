@@ -1,0 +1,6 @@
+This paper proposes CUSUM-FGO, a two-sided cumulative sum (CUSUM)-based weighted sliding window factor graph optimization method. There are some issues to be addressed:
+1. When an English abbreviation is first used, its full spelling should be provided. For example, UAV in abstract.
+2. In the introduction section, please include the latest references.
+3. In the introduction section, highlight the contributions of this paper and state them point by point.
+4. The text in the figure is too small and is difficult to read.
+5. Please confirm the page number of reference 2.

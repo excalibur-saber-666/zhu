@@ -1,0 +1,2 @@
+﻿Seed,Event,Follower,Leader,DetectionDelay,AlarmDelay,TargetAlarmFraction,CompetitorIsolation
+40,13,2,1,2.0,3.0,0.8333333333333334,F2-L2

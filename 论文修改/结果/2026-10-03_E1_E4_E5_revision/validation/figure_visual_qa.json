@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "reviewed_at": "2026-10-03T10:53:14.0566637+08:00",
+  "method": "Actual exported PNGs inspected; PDF/SVG properties independently checked",
+  "figures": [
+    {
+      "figure": "E1_parameter_sensitivity",
+      "passed": true,
+      "png_sha256": "14a0cdb09df0a0733e36a5fce310d3dd8161a2572714045f346d60ba478f6c6e"
+    },
+    {
+      "figure": "E4_runtime_convergence",
+      "passed": true,
+      "png_sha256": "e4189f8d30c67ca75645409d918d205b8150d59d7861c220b75d4b16d4009e4e"
+    },
+    {
+      "figure": "E5_mechanism_ablation",
+      "passed": true,
+      "png_sha256": "ace00dc17c0939d6a5d35427e4640afa3704ec6bff0375fe5ba19e4eba120eb4"
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+[
+  {
+    "path": "code/atti_cal_cq_modi.m",
+    "sha256": "6ca9724041b075124ef1b21a59eaf1768c7f98db77b8b7cc1cc78394cd67f8bb"
+  },
+  {
+    "path": "code/compute_ekf_cusum_range_weights.m",
+    "sha256": "dafc401a85ceedace947552be86624e348a9d080a4b0509ef1d031255e8a3865"
+  },
+  {
+    "path": "code/compute_li_style_segment_performance.m",
+    "sha256": "81ba1894750abb19aa54d65fb39e33cd610255b1c091fd0842057d847cf289df"
+  },
+  {
+    "path": "code/compute_signed_cusum_edge_weights.m",
+    "sha256": "da01253be0890fc4823ed0923cf11a24c52d4b3dde2610cdffdc2aa6398d66e8"
+  },
+  {
+    "path": "code/compute_stage1_position_metrics.m",
+    "sha256": "cf968cd4e7de56aa4bac9c5794ab88965c096e424de77f83e05b12caee41e414"
+  },
+  {
+    "path": "code/cooperative_range_ekf_update.m",
+    "sha256": "cc06ca7fecec452c5e973dbb82dbd2a8c519f0478330cf11f58c202344d91598"
+  },
+  {
+    "path": "code/cooperative_range_kf_update.m",
+    "sha256": "66202c2a2104bfffc3d5bec8bc8eddd04f3458dfe8dbb044b1da34e24e0eeb95"
+  },
+  {
+    "path": "code/distance_cal.m",
+    "sha256": "b07107514396aad1ae3151f54034220109fdf291ac9a6b8b2c07d8390d7420fd"
+  },
+  {
+    "path": "code/dis_cal.m",
+    "sha256": "bb99ba9140c73aac8632cd1a47b110cef8716c0b62c39fb770e8fbfabd929fb8"
+  },
+  {
+    "path": "code/factor_graph_centralization.m",
+    "sha256": "aa696b3085430d229c9530006908afa9aab054d902cc3176e9d6c0237d967bfd"
+  },
+  {
+    "path": "code/factor_graph_sliding_window.m",
+    "sha256": "0bf1be79319d3c567b69a0459b46c47a64276c9f1a4bbb3942fea34541bc30be"
+  },
+  {
+    "path": "code/factor_graph_sliding_window_imu_preint.m",
+    "sha256": "56d61d30e9181b1a298411cbecc34d92bc441deb85ccd7e5818712a3c2a20e5e"
+  },
+  {
+    "path": "code/graph_modi.m",
+    "sha256": "4766b84801cc1d430f54671a487ed5225df9d5773d80c86df2adb048df31b6c2"
+  },
+  {
+    "path": "code/IMUout.m",
+    "sha256": "6baa8ae9b49bad963adad39430f685d7be47e97403a3e4d8e1afa5e6e7209b15"
+  },
+  {
+    "path": "code/imu_err_random.m",
+    "sha256": "9723c8a7619117d99930d7a992ca46b960d2530b0ea6eab4e1e28222988765f0"
+  },
+  {
+    "path": "code/imu_preintegrate_interval.m",
+    "sha256": "e131a2108a8006446dbc3d7697c9d9f3174e37c18efe4117f15dca4a5e16865f"
+  },
+  {
+    "path": "code/imu_preintegration_default_noise.m",
+    "sha256": "b1c2eb6ae56f452827fa7f7cbe3c6384a4945ac157edb8e93ccf3f8d6dc15e16"
+  },
+  {
+    "path": "code/imu_preintegration_numeric_jacobian.m",
+    "sha256": "1d9a5b6b8183d9eb9c053753b61b899bf2aea1a8b7a4da5d31f06683af651fdf"
+  },
+  {
+    "path": "code/imu_preintegration_residual.m",
+    "sha256": "448385a6f7b8fbda44d0475b8715442c982183bf63f81500e6522a5a515c06c6"
+  },
+  {
+    "path": "code/kalm_factor_init.m",
+    "sha256": "d6128fd00837e317562e57317a4028013da3c96b703ac5e5c8598f0948240d25"
+  },
+  {
+    "path": "code/kalm_factor_measure_update.m",
+    "sha256": "3483f39913a57611b9c73af0bb0ee9a32eb6aa840ed9531ed0458a3f334e0f45"
+  },
+  {
+    "path": "code/kalm_factor_time_update.m",
+    "sha256": "84c033ccfb75f9f2f51d5bcd07ab4a8c9aa9360984eda86189dafe5fc7dbf1a4"
+  },
+  {
+    "path": "code/kalm_modi.m",
+    "sha256": "35f678b723390d9169746e8bd2fad19b9726e00c0fa19c6a5f20a4d8005f63b7"
+  },
+  {
+    "path": "code/main_stage1.m",
+    "sha256": "b64449169d4eef2a7bf77403e3b5dcb081d0ee83813b1b330c7f65eea618eb65"
+  },
+  {
+    "path": "code/plot_li_style_matlab_figures.m",
+    "sha256": "9b3f04d56e67e00371326618a62063afa6683366cf9e00e023cc71a0f6dd5e31"
+  },
+  {
+    "path": "code/plot_stage1_four_method_position_results.m",
+    "sha256": "77c2920634719753bde3d5c6b4f24bb53ed9d4ae4604ecc0f7f4932793212640"
+  },
+  {
+    "path": "code/posical_enu.m",
+    "sha256": "01ccf3b18ed43b059f27803cd7e426764050f32a46b231e4fb91bafd6895edc1"
+  },
+  {
+    "path": "code/posical_xyz.m",
+    "sha256": "0c9aee35b45a0f546dff16b9521b6e4fcb3a6912b3a41b8d14aaf90648532649"
+  },
+  {
+    "path": "code/posi_cal.m",
+    "sha256": "f3f9d86f817123a32eab679868673b84448e396c7c596aa1b3027664675c44b8"
+  },
+  {
+    "path": "code/posi_out.m",
+    "sha256": "377a0838def6cc95713ee3661c222952a065a5894d02d5a4f2819f09a0225145"
+  },
+  {
+    "path": "code/range_residual_cal.m",
+    "sha256": "19597e8f71b1eb9d5a8752f0e52976d1f0f75e2b6b62e93db65228f8d9434539"
+  },
+  {
+    "path": "code/residual_cal.m",
+    "sha256": "fd808f898f7c328762fe843df57b6f2fb61b46107cad1b119fd12900a11cf243"
+  },
+  {
+    "path": "code/revision_experiment_config.m",
+    "sha256": "e63ad00be91662d58544aadee4e9e777065f0ca69a6c0f5363582461a072f342"
+  },
+  {
+    "path": "code/revision_relative_motion.m",
+    "sha256": "27e8d686821de8a61d6bf7fd21df190eaed33ab67046d2ac4d6fdbe10f83b02e"
+  },
+  {
+    "path": "code/revision_validate_config.m",
+    "sha256": "063cf7dbdb8799ce485a9bb811db19d897225d85ce3698bf3a85c5821017866c"
+  },
+  {
+    "path": "code/run_core_tests.m",
+    "sha256": "5f54f8bc195342b2ca789ce2540d6a480fa5b6df2f4bda6f7a416097568a1829"
+  },
+  {
+    "path": "code/run_li_style_comparison.m",
+    "sha256": "cee6025a8ccf10ab96251761cb30d6554ab40a8b387b052b2906254a8585db1d"
+  },
+  {
+    "path": "code/run_li_style_paper_experiment.m",
+    "sha256": "38bcd0ffee8c71cc6362c411821fbad34c2c590d48a2781ea053dc75a0a82d15"
+  },
+  {
+    "path": "code/run_revision_experiments.m",
+    "sha256": "df20f5b73bcf8ef6c4e8c3f30351642b11cab23cd3c1060a99c5a37c7b72fa45"
+  },
+  {
+    "path": "code/run_stage1_cusum_comparison.m",
+    "sha256": "7b4b200fc07aaf7f77fe6c87e7b6062393f77c66dd15938f6180078cc618881e"
+  },
+  {
+    "path": "code/setup_project.m",
+    "sha256": "2edbae0c6eb1fcec75c8501a71dcde3651ee5fa02461efbf0d298130c0a75c91"
+  },
+  {
+    "path": "code/so3_exp.m",
+    "sha256": "07189330be532f89ab6ab34e2b39b1c8ae751c4f835cc72e13d6122addd3bb3a"
+  },
+  {
+    "path": "code/so3_hat.m",
+    "sha256": "f4a33c0a1289fe749b827b6cde4d5f8b0072a9568063c4f218c0e66ee859bd12"
+  },
+  {
+    "path": "code/so3_log.m",
+    "sha256": "c31e801ee88f217580730447fe10e08df880d00d818712e2a64aee8e1a4bed97"
+  },
+  {
+    "path": "code/so3_right_jacobian.m",
+    "sha256": "c7b507c5753415c988835b2c1332b958e1299306c18896af62a4acfef13be78a"
+  },
+  {
+    "path": "code/stage1_cusum_3f3l_config.m",
+    "sha256": "c2f1af693763e9b194fcc7819b99febaea4e19830ffb6e99ecd15eeb203a60d1"
+  },
+  {
+    "path": "code/stage1_cusum_default_config.m",
+    "sha256": "42855af36cdf03e7de1860a5b40cefc0fbcd586d02e3eeb0b1be0a29c2c2c9b6"
+  },
+  {
+    "path": "code/stage1_project_root.m",
+    "sha256": "a6c69f8a926e13a5e493a2d2764afc8b05aaa8c93caddaf36a89b04e54c3f9d6"
+  },
+  {
+    "path": "code/test_revision_experiments.m",
+    "sha256": "5f0dd7699e799d6269d46c00d322129bd9043ded9be765ababd5a40d346fca23"
+  },
+  {
+    "path": "code/test_stage1_3f3l_imu_preint_smoke.m",
+    "sha256": "b5e8c99a5883c9ded4dc2e989acc470f887c591f06e7f64ede21af444d89505c"
+  },
+  {
+    "path": "code/test_stage1_cusum_components.m",
+    "sha256": "677a9ba2f3a43ad63cf1a492e61567ccb87d2389e7ac99dfcb64554446994492"
+  },
+  {
+    "path": "code/test_stage1_four_method_comparison_smoke.m",
+    "sha256": "b971923b813013a21cbd02ab5427cdee1cc76146ce4ffb47f9dfa869b30d1670"
+  },
+  {
+    "path": "code/trace.m",
+    "sha256": "a5894ab4bae6f9e40696372a7ecce6fe5cde1b6ab526421d3b065f8ca63f3b24"
+  },
+  {
+    "path": "code/veloN0.m",
+    "sha256": "5a9e05a73e7407fbd2e64edcf45f5513fb93ecd9ef42bca583c1db3e331ac6b1"
+  },
+  {
+    "path": "code/velo_cal.m",
+    "sha256": "782eec6569c66c9b0c22ce51c983f6ad0ce427e15d85fe07818558cbe60bba70"
+  },
+  {
+    "path": "code/data/posi_e_all.dat",
+    "sha256": "e07a6c18dde84e2ac66c7bde55477b76c94f3a2e8ba8a1f820e6c8353398de63"
+  },
+  {
+    "path": "code/data/posi_n_all.dat",
+    "sha256": "c885db6bd5bc327ca9e57c12d7ffa784dae1f1c6feb7a4af665b121d9a7e79b2"
+  },
+  {
+    "path": "code/data/posi_u_all.dat",
+    "sha256": "8f326f7c66acaf75b7b3d1849897ddecebcda24cae5203692142809e6d8c1aa1"
+  }
+]

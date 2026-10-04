@@ -35,3 +35,10 @@
 /code/*_hybrid*.dat
 __pycache__/
 *.pyc
+
+# Local revision copies; public copies are classified under 论文修改/.
+/E3_E2_论文返修实验_Codex执行提示词.md
+/剩余实验操作大纲.md
+/审稿意见汇总与论文修改方案.md
+/实验结果总索引.md
+/实验结果下载说明.md

@@ -1,0 +1,15 @@
+{
+  "stage": "E5",
+  "expected_checkpoints": 150,
+  "completed_checkpoints": 150,
+  "reused_checkpoints": 50,
+  "new_checkpoints": 100,
+  "missing_checkpoints": 0,
+  "failed_attempts": 0,
+  "partial_files": 0,
+  "passed": true,
+  "input_pairing_verified": true,
+  "statistics_unit": "seed",
+  "parameters_reselected": false,
+  "findings": []
+}
